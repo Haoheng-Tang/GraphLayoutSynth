@@ -9,4 +9,5 @@ htmlcov/
 venv/
 env/
 outputs/*.json
+outputs/*.png
 !outputs/.gitkeep
