@@ -15,20 +15,41 @@ The project represents building layouts as attributed graphs:
 
 The initial goal is not to train a deep graph generative model. Instead, the project explores a small-data, rule-guided approach where candidate layout graphs are generated through stochastic procedural rules and evaluated using explicit constraints and metrics.
 
-## First Milestone
+## Milestone 1
 
 **Minimal stochastic graph-grammar prototype**
 
-The first milestone focuses on generating small valid building layout graphs from structured grammar rules.
+The current implementation generates small building layout graphs from explicit stochastic grammar rules, validates them, scores them, and exports the best candidate to JSON.
 
-Planned features:
+Implemented features:
 
 * Define a seed graph such as `BuildingFloor`.
 * Expand abstract nodes into zones, room clusters, corridors, and rooms.
-* Add stochastic rule parameters such as cluster size, corridor pattern, and room-type mix.
+* Add stochastic rule parameters such as zone count, room count, and room-type mix.
 * Validate generated graphs using basic constraints.
 * Score and rank feasible candidates.
 * Export generated graphs as JSON.
+
+## Quickstart
+
+Use the requested mamba environment:
+
+```bash
+mamba activate musa-550-fall-2024
+python -m pip install -e ".[dev]"
+```
+
+Generate candidates:
+
+```bash
+python -m graph_layout_synth generate --num-candidates 10 --seed 42 --output-dir outputs
+```
+
+Run tests:
+
+```bash
+pytest
+```
 
 ## Initial Scope
 
