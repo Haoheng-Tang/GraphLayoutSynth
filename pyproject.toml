@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graph-layout-synth"
+version = "0.1.0"
+description = "Minimal stochastic graph-grammar prototype for building layout graphs."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "networkx>=2.8.7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
