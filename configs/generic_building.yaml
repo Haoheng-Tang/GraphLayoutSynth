@@ -1,0 +1,57 @@
+project:
+  name: GraphLayoutSynth generic building
+  building_type: GenericBuilding
+
+random_seed_default: 42
+
+generation:
+  num_candidates: 5
+
+allowed_node_types:
+  - BuildingFloor
+  - Zone
+  - Corridor
+  - PatientRoom
+  - ClinicalSupport
+  - StaffSupport
+
+allowed_edge_types:
+  - door
+  - wall
+
+zone_types:
+  - public
+  - private
+  - service
+
+room_type_counts:
+  PatientRoom: 3
+  ClinicalSupport: 1
+  StaffSupport: 1
+
+stochastic:
+  min_zone_count: 2
+  max_zone_count: 3
+  min_cluster_size: 2
+  max_cluster_size: 4
+  corridor_pattern_choices:
+    - linear
+    - hub
+  support_room_choices:
+    - ClinicalSupport
+    - StaffSupport
+
+validation:
+  require_connected_graph: true
+  require_corridor_access: true
+  allow_abstract_nodes_final: false
+
+visualization:
+  node_colors:
+    BuildingFloor: "#9e9e9e"
+    Zone: "#b39ddb"
+    Corridor: "#f2c14e"
+    PatientRoom: "#4f8ef7"
+    ClinicalSupport: "#7bc96f"
+    StaffSupport: "#d96c75"
+  unknown_node_color: "#c7c7c7"
