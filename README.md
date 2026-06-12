@@ -42,14 +42,34 @@ python -m pip install -e ".[dev]"
 Generate candidates:
 
 ```bash
-python -m graph_layout_synth generate --num-candidates 10 --seed 42 --output-dir outputs
+python -m graph_layout_synth generate --config configs/generic_building.yaml --num-candidates 10 --seed 42 --output-dir outputs
 ```
 
 Generate candidates with PNG visualizations:
 
 ```bash
-python -m graph_layout_synth generate --num-candidates 10 --seed 42 --visualize
+python -m graph_layout_synth generate --config configs/generic_building.yaml --num-candidates 10 --seed 42 --visualize
 ```
+
+Rank candidates and save the top candidates:
+
+```bash
+python -m graph_layout_synth generate --config configs/generic_building.yaml --num-candidates 50 --top-k 5 --seed 42 --visualize
+```
+
+## Configuration
+
+The default YAML config lives at `configs/generic_building.yaml`. It controls the project/building type name, default seed, candidate count, allowed node and edge types, zone types, room type mix, stochastic cluster parameters, corridor pattern choices, basic validation settings, and visualization colors.
+
+You can edit this file or pass another YAML file with `--config` to change grammar and validation parameters without changing Python code.
+
+## Candidate Ranking
+
+Candidate ranking is deterministic and metric-based. Each generated graph is scored from transparent metrics such as validation status, graph connectivity, corridor access ratio, abstract node count, and invalid edge type count.
+
+The CLI writes `ranking_report.json` and `ranking_report.csv` under the output directory, keeps saving `best_candidate.json`, and saves top-k graph/report artifacts. When `--visualize` is enabled, it also saves PNGs for the top-k candidates.
+
+LLM-based interpretation may be added later as a separate module, but this ranking step is intentionally explicit and local.
 
 Run tests:
 
@@ -63,10 +83,10 @@ The first prototype will support generic building layout graphs rather than one 
 
 Example room or space types may include:
 
-* Room
 * Corridor
-* SupportRoom
-* ServiceRoom
+* PatientRoom
+* ClinicalSupport
+* StaffSupport
 * PublicZone
 * PrivateZone
 * VerticalCore

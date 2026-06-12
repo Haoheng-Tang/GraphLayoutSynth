@@ -13,6 +13,8 @@ import networkx as nx
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
+from graph_layout_synth.config import LayoutConfig
+
 
 NODE_COLORS = {
     "Corridor": "#f2c14e",
@@ -37,7 +39,21 @@ def _edge_style(edge_type: str | None) -> str:
     return EDGE_STYLES.get(edge_type or "", "dotted")
 
 
-def visualize_graph(G: nx.Graph, output_path: str | Path, title: str | None = None) -> Path:
+def _configured_colors(config: LayoutConfig | None) -> tuple[dict[str, str], str]:
+    node_colors = dict(NODE_COLORS)
+    unknown_node_color = "#c7c7c7"
+    if config:
+        node_colors.update(config.visualization.node_colors)
+        unknown_node_color = config.visualization.unknown_node_color
+    return node_colors, unknown_node_color
+
+
+def visualize_graph(
+    G: nx.Graph,
+    output_path: str | Path,
+    title: str | None = None,
+    config: LayoutConfig | None = None,
+) -> Path:
     """Save a static PNG visualization of a layout graph."""
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -46,7 +62,11 @@ def visualize_graph(G: nx.Graph, output_path: str | Path, title: str | None = No
     pos = nx.spring_layout(G, seed=42)
 
     node_types = nx.get_node_attributes(G, "type")
-    node_colors = [_node_color(node_types.get(node)) for node in G.nodes]
+    configured_node_colors, unknown_node_color = _configured_colors(config)
+    node_colors = [
+        configured_node_colors.get(node_types.get(node, ""), unknown_node_color)
+        for node in G.nodes
+    ]
     labels = {
         node: node_types.get(node, str(node))
         for node in G.nodes
@@ -87,7 +107,7 @@ def visualize_graph(G: nx.Graph, output_path: str | Path, title: str | None = No
 
     node_legend = [
         Patch(facecolor=color, edgecolor="#333333", label=node_type)
-        for node_type, color in NODE_COLORS.items()
+        for node_type, color in configured_node_colors.items()
         if node_type in set(node_types.values())
     ]
     edge_legend = [
