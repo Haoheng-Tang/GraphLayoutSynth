@@ -1,5 +1,6 @@
 import json
 
+import graph_layout_synth.cli as cli
 from graph_layout_synth.cli import main
 
 
@@ -28,3 +29,34 @@ def test_cli_ranking_report_is_created(tmp_path):
     data = json.loads(ranking_report.read_text(encoding="utf-8"))
     assert data[0]["rank"] == 1
     assert "corridor_access_ratio" in data[0]
+
+
+def test_cli_evaluate_llm_writes_output(tmp_path, monkeypatch):
+    ranking_report = tmp_path / "ranking_report.json"
+    output_path = tmp_path / "llm_evaluation.md"
+    ranking_report.write_text(
+        json.dumps([{"rank": 1, "candidate_id": "candidate_1", "ranking_score": 150.0}]),
+        encoding="utf-8",
+    )
+
+    def fake_evaluate_candidates_with_llm(**kwargs):
+        output = kwargs["output_path"]
+        with open(output, "w", encoding="utf-8") as file:
+            file.write("# LLM Evaluation\n")
+        return {"output_path": output, "model": kwargs["model"], "markdown": "# LLM Evaluation\n"}
+
+    monkeypatch.setattr(cli, "evaluate_candidates_with_llm", fake_evaluate_candidates_with_llm)
+
+    main(
+        [
+            "evaluate-llm",
+            "--ranking-report",
+            str(ranking_report),
+            "--output",
+            str(output_path),
+            "--model",
+            "test-model",
+        ]
+    )
+
+    assert output_path.exists()
