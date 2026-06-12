@@ -45,6 +45,12 @@ Generate candidates:
 python -m graph_layout_synth generate --num-candidates 10 --seed 42 --output-dir outputs
 ```
 
+Generate candidates with PNG visualizations:
+
+```bash
+python -m graph_layout_synth generate --num-candidates 10 --seed 42 --visualize
+```
+
 Run tests:
 
 ```bash

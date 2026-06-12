@@ -9,6 +9,7 @@ description = "Minimal stochastic graph-grammar prototype for building layout gr
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+  "matplotlib>=3.7",
   "networkx>=2.8.7",
 ]
 
