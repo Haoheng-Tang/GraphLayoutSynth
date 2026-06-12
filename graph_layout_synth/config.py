@@ -92,7 +92,7 @@ def _require_bool(data: dict[str, Any], key: str) -> bool:
     return value
 
 
-def _optional_visualization(config: dict[str, Any]) -> VisualizationSettings:
+def _visualization_settings(config: dict[str, Any]) -> VisualizationSettings:
     visualization = config.get("visualization", {})
     if not isinstance(visualization, dict):
         raise ConfigError("Config field 'visualization' must be a mapping.")
@@ -108,10 +108,7 @@ def _optional_visualization(config: dict[str, Any]) -> VisualizationSettings:
     if not isinstance(unknown_node_color, str):
         raise ConfigError("Config field 'visualization.unknown_node_color' must be a color string.")
 
-    return VisualizationSettings(
-        node_colors=node_colors,
-        unknown_node_color=unknown_node_color,
-    )
+    return VisualizationSettings(node_colors=node_colors, unknown_node_color=unknown_node_color)
 
 
 def validate_config(config: dict[str, Any]) -> LayoutConfig:
@@ -135,6 +132,14 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
     if random_seed_default is not None and not isinstance(random_seed_default, int):
         raise ConfigError("Config field 'random_seed_default' must be an integer or null.")
 
+    allowed_node_types = _require_list(config, "allowed_node_types")
+    allowed_edge_types = _require_list(config, "allowed_edge_types")
+    zone_types = _require_list(config, "zone_types")
+    if "Corridor" not in allowed_node_types:
+        raise ConfigError("Config field 'allowed_node_types' must include 'Corridor'.")
+    if "door" not in allowed_edge_types:
+        raise ConfigError("Config field 'allowed_edge_types' must include 'door'.")
+
     room_type_counts = config.get("room_type_counts")
     if (
         not isinstance(room_type_counts, dict)
@@ -143,14 +148,6 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
     ):
         raise ConfigError("Config field 'room_type_counts' must map room types to positive integer counts.")
 
-    allowed_node_types = _require_list(config, "allowed_node_types")
-    allowed_edge_types = _require_list(config, "allowed_edge_types")
-    zone_types = _require_list(config, "zone_types")
-
-    if "Corridor" not in allowed_node_types:
-        raise ConfigError("Config field 'allowed_node_types' must include 'Corridor'.")
-    if "door" not in allowed_edge_types:
-        raise ConfigError("Config field 'allowed_edge_types' must include 'door'.")
     unknown_room_types = set(room_type_counts) - set(allowed_node_types)
     if unknown_room_types:
         raise ConfigError(
@@ -163,16 +160,15 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
     max_zone_count = _require_int(stochastic, "max_zone_count")
     min_cluster_size = _require_int(stochastic, "min_cluster_size")
     max_cluster_size = _require_int(stochastic, "max_cluster_size")
-
     if min_zone_count < 1 or max_zone_count < min_zone_count:
         raise ConfigError("Zone count bounds must be positive and ordered.")
     if min_cluster_size < 1 or max_cluster_size < min_cluster_size:
         raise ConfigError("Cluster size bounds must be positive and ordered.")
+
     num_candidates = _require_int(generation, "num_candidates")
     if num_candidates < 1:
         raise ConfigError("Config field 'generation.num_candidates' must be at least 1.")
 
-    corridor_pattern_choices = _require_list(stochastic, "corridor_pattern_choices")
     support_room_choices = _require_list(stochastic, "support_room_choices")
     unknown_support_types = set(support_room_choices) - set(allowed_node_types)
     if unknown_support_types:
@@ -195,7 +191,7 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
             max_zone_count=max_zone_count,
             min_cluster_size=min_cluster_size,
             max_cluster_size=max_cluster_size,
-            corridor_pattern_choices=corridor_pattern_choices,
+            corridor_pattern_choices=_require_list(stochastic, "corridor_pattern_choices"),
             support_room_choices=support_room_choices,
         ),
         validation=ValidationSettings(
@@ -203,7 +199,7 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
             require_corridor_access=_require_bool(validation, "require_corridor_access"),
             allow_abstract_nodes_final=_require_bool(validation, "allow_abstract_nodes_final"),
         ),
-        visualization=_optional_visualization(config),
+        visualization=_visualization_settings(config),
     )
 
 
@@ -216,5 +212,4 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> LayoutConfig:
         raise ConfigError(f"Config file not found: {config_path}") from exc
     except yaml.YAMLError as exc:
         raise ConfigError(f"Config file is not valid YAML: {config_path}") from exc
-
     return validate_config(raw_config)

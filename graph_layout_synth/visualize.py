@@ -31,21 +31,21 @@ EDGE_STYLES = {
 }
 
 
-def _color_settings(config: LayoutConfig | None) -> tuple[dict[str, str], str]:
+def _node_color(node_type: str | None) -> str:
+    return NODE_COLORS.get(node_type or "", "#c7c7c7")
+
+
+def _edge_style(edge_type: str | None) -> str:
+    return EDGE_STYLES.get(edge_type or "", "dotted")
+
+
+def _configured_colors(config: LayoutConfig | None) -> tuple[dict[str, str], str]:
     node_colors = dict(NODE_COLORS)
     unknown_node_color = "#c7c7c7"
     if config:
         node_colors.update(config.visualization.node_colors)
         unknown_node_color = config.visualization.unknown_node_color
     return node_colors, unknown_node_color
-
-
-def _node_color(node_type: str | None, node_colors: dict[str, str], unknown_node_color: str) -> str:
-    return node_colors.get(node_type or "", unknown_node_color)
-
-
-def _edge_style(edge_type: str | None) -> str:
-    return EDGE_STYLES.get(edge_type or "", "dotted")
 
 
 def visualize_graph(
@@ -62,9 +62,9 @@ def visualize_graph(
     pos = nx.spring_layout(G, seed=42)
 
     node_types = nx.get_node_attributes(G, "type")
-    configured_node_colors, unknown_node_color = _color_settings(config)
+    configured_node_colors, unknown_node_color = _configured_colors(config)
     node_colors = [
-        _node_color(node_types.get(node), configured_node_colors, unknown_node_color)
+        configured_node_colors.get(node_types.get(node, ""), unknown_node_color)
         for node in G.nodes
     ]
     labels = {

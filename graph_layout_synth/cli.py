@@ -6,8 +6,14 @@ import argparse
 from pathlib import Path
 
 from graph_layout_synth.config import DEFAULT_CONFIG_PATH, load_config
-from graph_layout_synth.export import export_graph_json, export_report_json
-from graph_layout_synth.generator import generate_candidates, select_best_candidate
+from graph_layout_synth.export import (
+    export_graph_json,
+    export_ranking_report_csv,
+    export_ranking_report_json,
+    export_report_json,
+)
+from graph_layout_synth.generator import generate_candidates
+from graph_layout_synth.ranking import rank_candidates
 from graph_layout_synth.visualize import visualize_graph
 
 
@@ -19,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate = subparsers.add_parser("generate", help="Generate candidate layout graphs.")
     generate.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     generate.add_argument("--num-candidates", type=int, default=None)
+    generate.add_argument("--top-k", type=int, default=1)
     generate.add_argument("--seed", type=int, default=None)
     generate.add_argument("--output-dir", type=Path, default=Path("outputs"))
     generate.add_argument(
@@ -38,32 +45,66 @@ def run_generate(args: argparse.Namespace) -> None:
 
     if num_candidates < 1:
         raise SystemExit("--num-candidates must be at least 1.")
+    if args.top_k < 1:
+        raise SystemExit("--top-k must be at least 1.")
 
     results = generate_candidates(num_candidates, seed, config)
-    best = select_best_candidate(results)
+    candidate_records = [
+        {
+            "candidate_id": f"candidate_{index}",
+            "graph": result.graph,
+            "validation_report": None,
+        }
+        for index, result in enumerate(results, start=1)
+    ]
+    ranked = rank_candidates(candidate_records)
+    top_k = ranked[: min(args.top_k, len(ranked))]
+    best = ranked[0]
     output_path = args.output_dir / "best_candidate.json"
-    export_graph_json(best.graph, output_path)
+    export_graph_json(best["graph"], output_path)
     report_path = args.output_dir / "best_candidate_report.json"
+    best_result = results[int(best["candidate_id"].split("_")[-1]) - 1]
     export_report_json(
-        best.graph,
+        best["graph"],
         report_path,
-        best.score,
-        best.is_valid,
-        best.validation_errors,
+        best_result.score,
+        bool(best["metrics"]["validation_passed"]),
+        best_result.validation_errors,
+        metrics=best["metrics"],
+        ranking_score=best["ranking_score"],
     )
+    export_ranking_report_json(ranked, args.output_dir / "ranking_report.json")
+    export_ranking_report_csv(ranked, args.output_dir / "ranking_report.csv")
+
+    for item in top_k:
+        candidate_index = int(item["candidate_id"].split("_")[-1])
+        result = results[candidate_index - 1]
+        prefix = f"top_{item['rank']}_{item['candidate_id']}"
+        graph_path = args.output_dir / f"{prefix}.json"
+        report_candidate_path = args.output_dir / f"{prefix}_report.json"
+        export_graph_json(item["graph"], graph_path)
+        export_report_json(
+            item["graph"],
+            report_candidate_path,
+            result.score,
+            bool(item["metrics"]["validation_passed"]),
+            result.validation_errors,
+            metrics=item["metrics"],
+            ranking_score=item["ranking_score"],
+        )
 
     if args.visualize:
-        for index, result in enumerate(results, start=1):
+        for item in top_k:
             visualize_graph(
-                result.graph,
-                args.output_dir / f"candidate_{index}.png",
-                title=f"Candidate {index}: score {result.score:.1f}",
+                item["graph"],
+                args.output_dir / f"top_{item['rank']}_{item['candidate_id']}.png",
+                title=f"{item['candidate_id']}: score {item['ranking_score']:.1f}",
                 config=config,
             )
         visualize_graph(
-            best.graph,
+            best["graph"],
             args.output_dir / "best_candidate.png",
-            title=f"Best candidate: score {best.score:.1f}",
+            title=f"Best candidate: score {best['ranking_score']:.1f}",
             config=config,
         )
 
@@ -71,12 +112,20 @@ def run_generate(args: argparse.Namespace) -> None:
     print(f"Config: {args.config}.")
     print(f"Generated {len(results)} candidate(s).")
     print(f"Valid candidates: {valid_count}.")
-    print(f"Best score: {best.score:.1f}.")
-    print(f"Best graph: {best.graph.number_of_nodes()} nodes, {best.graph.number_of_edges()} edges.")
+    print(f"Best ranking score: {best['ranking_score']:.1f}.")
+    print(f"Best graph: {best['metrics']['node_count']} nodes, {best['metrics']['edge_count']} edges.")
     print(f"Saved best candidate to {output_path}.")
     print(f"Saved best report to {report_path}.")
+    print("Top candidates:")
+    for item in top_k:
+        metrics = item["metrics"]
+        print(
+            f"  {item['candidate_id']}: score={item['ranking_score']:.1f}, "
+            f"valid={metrics['validation_passed']}, rooms={metrics['room_count']}, "
+            f"corridor_access={metrics['corridor_access_ratio']:.2f}"
+        )
     if args.visualize:
-        print(f"Saved PNG visualizations to {args.output_dir}.")
+        print(f"Saved top-k PNG visualizations to {args.output_dir}.")
 
 
 def main(argv: list[str] | None = None) -> None:

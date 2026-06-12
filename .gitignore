@@ -10,4 +10,5 @@ venv/
 env/
 outputs/*.json
 outputs/*.png
+outputs/*.csv
 !outputs/.gitkeep

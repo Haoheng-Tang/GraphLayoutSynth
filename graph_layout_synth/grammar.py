@@ -9,6 +9,7 @@ import networkx as nx
 
 from graph_layout_synth.config import LayoutConfig, load_config
 
+
 VALID_EDGE_TYPES = {"door", "wall"}
 
 
@@ -52,10 +53,7 @@ def expand_floor_to_zones(
     if "floor" not in graph:
         return []
 
-    zone_count = rng.randint(
-        config.stochastic.min_zone_count,
-        config.stochastic.max_zone_count,
-    )
+    zone_count = rng.randint(config.stochastic.min_zone_count, config.stochastic.max_zone_count)
     zone_names = [f"zone_{index + 1}" for index in range(zone_count)]
 
     graph.remove_node("floor")
@@ -85,10 +83,7 @@ def expand_zone_to_room_cluster(
     if zone_node not in graph:
         return
 
-    room_count = rng.randint(
-        config.stochastic.min_cluster_size,
-        config.stochastic.max_cluster_size,
-    )
+    room_count = rng.randint(config.stochastic.min_cluster_size, config.stochastic.max_cluster_size)
     corridor_pattern = rng.choice(config.stochastic.corridor_pattern_choices)
     corridor_node = f"{zone_node}_corridor"
     neighbors = list(graph.neighbors(zone_node))
