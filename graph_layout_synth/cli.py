@@ -13,6 +13,7 @@ from graph_layout_synth.export import (
     export_report_json,
 )
 from graph_layout_synth.generator import generate_candidates
+from graph_layout_synth.llm_evaluator import LlmEvaluationError, evaluate_candidates_with_llm
 from graph_layout_synth.ranking import rank_candidates
 from graph_layout_synth.visualize import visualize_graph
 
@@ -33,6 +34,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Save PNG visualizations for generated candidates.",
     )
+
+    evaluate_llm = subparsers.add_parser(
+        "evaluate-llm",
+        help="Use Claude to interpret deterministic ranking reports.",
+    )
+    evaluate_llm.add_argument("--ranking-report", type=Path, required=True)
+    evaluate_llm.add_argument("--candidate-reports", nargs="*", default=[])
+    evaluate_llm.add_argument("--output", type=Path, default=Path("outputs/llm_evaluation.md"))
+    evaluate_llm.add_argument("--model", default="claude-3-5-haiku-latest")
+    evaluate_llm.add_argument("--env-path", default=".env.local")
+    evaluate_llm.add_argument("--max-tokens", type=int, default=1200)
 
     return parser
 
@@ -128,6 +140,24 @@ def run_generate(args: argparse.Namespace) -> None:
         print(f"Saved top-k PNG visualizations to {args.output_dir}.")
 
 
+def run_evaluate_llm(args: argparse.Namespace) -> None:
+    """Run optional Claude interpretation over ranking reports."""
+    try:
+        result = evaluate_candidates_with_llm(
+            ranking_report_path=str(args.ranking_report),
+            candidate_report_paths=[str(path) for path in args.candidate_reports],
+            model=args.model,
+            output_path=str(args.output),
+            env_path=args.env_path,
+            max_tokens=args.max_tokens,
+        )
+    except LlmEvaluationError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    print(f"Saved LLM evaluation to {result['output_path']}.")
+    print(f"Model: {result['model']}.")
+
+
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -135,6 +165,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "generate":
         run_generate(args)
+    elif args.command == "evaluate-llm":
+        run_evaluate_llm(args)
 
 
 if __name__ == "__main__":

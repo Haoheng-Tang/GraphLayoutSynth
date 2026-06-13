@@ -71,6 +71,33 @@ The CLI writes `ranking_report.json` and `ranking_report.csv` under the output d
 
 LLM-based interpretation may be added later as a separate module, but this ranking step is intentionally explicit and local.
 
+## LLM Evaluation
+
+LLM evaluation is optional. It reads deterministic ranking and candidate reports, then asks Claude for a natural-language interpretation. It does not replace deterministic ranking, does not generate graphs, and should not be treated as a validity certificate.
+
+Install the optional Anthropic dependency when you want to use this command:
+
+```bash
+python -m pip install -e ".[llm]"
+```
+
+Create `.env.local` at the repository root:
+
+```text
+ANTHROPIC_API_KEY=your_api_key_here
+```
+
+Run evaluation:
+
+```bash
+python -m graph_layout_synth evaluate-llm \
+  --ranking-report outputs/ranking_report.json \
+  --candidate-reports outputs/top_candidate_000_report.json outputs/top_candidate_001_report.json \
+  --output outputs/llm_evaluation.md
+```
+
+The LLM can summarize, compare, critique, and suggest possible repair directions for top candidates. Deterministic metrics and ranking remain the primary ranking method.
+
 Run tests:
 
 ```bash

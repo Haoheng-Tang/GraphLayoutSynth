@@ -18,6 +18,12 @@ dependencies = [
 dev = [
   "pytest>=8.0",
 ]
+llm = [
+  "anthropic>=0.40",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["graph_layout_synth*"]
