@@ -51,6 +51,17 @@ Generate candidates with PNG visualizations:
 python -m graph_layout_synth generate --config configs/generic_building.yaml --num-candidates 10 --seed 42 --visualize
 ```
 
+## Demo UI
+
+This spike branch includes a disposable local Streamlit UI:
+
+```bash
+python -m pip install -e ".[llm,demo]"
+streamlit run demo_app.py
+```
+
+Use it to run generation, inspect ranked candidates, view graph PNGs, and optionally run Claude evaluation. See `DEMO.md` for the short workflow.
+
 Rank candidates and save the top candidates:
 
 ```bash

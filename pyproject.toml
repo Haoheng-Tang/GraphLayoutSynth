@@ -21,6 +21,10 @@ dev = [
 llm = [
   "anthropic>=0.40",
 ]
+demo = [
+  "pandas>=1.5",
+  "streamlit>=1.36",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
