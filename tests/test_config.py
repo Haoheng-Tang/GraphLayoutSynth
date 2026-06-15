@@ -10,6 +10,8 @@ def test_default_config_file_loads():
     assert config.project.building_type == "GenericBuilding"
     assert "door" in config.allowed_edge_types
     assert config.visualization.node_colors["PatientRoom"]
+    assert config.ranking.targets["edge_node_ratio"] == 1.25
+    assert config.ranking.weights["edge_density"] == 10.0
 
 
 def test_invalid_config_raises_clear_error():
