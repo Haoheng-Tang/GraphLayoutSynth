@@ -46,6 +46,74 @@ validation:
   require_corridor_access: true
   allow_abstract_nodes_final: false
 
+grammar_rules:
+  - name: expand_floor_to_zones
+    match:
+      type: BuildingFloor
+      is_abstract: true
+    action:
+      remove_matched_node: true
+      create_nodes:
+        - alias: public_zone
+          type: Zone
+          count: 1
+          attributes:
+            zone_type: PublicZone
+            is_abstract: true
+        - alias: private_zone
+          type: Zone
+          count: 1
+          attributes:
+            zone_type: PrivateZone
+            is_abstract: true
+        - alias: service_zone
+          type: Zone
+          count: 1
+          attributes:
+            zone_type: ServiceZone
+            is_abstract: true
+      create_edges:
+        - source: public_zone
+          target: private_zone
+          edge_type: door
+        - source: private_zone
+          target: service_zone
+          edge_type: door
+
+  - name: expand_zone_to_room_cluster
+    match:
+      type: Zone
+      is_abstract: true
+    action:
+      remove_matched_node: false
+      update_matched_node_attributes:
+        is_abstract: false
+      create_nodes:
+        - alias: corridor
+          type: Corridor
+          count: 1
+          attributes:
+            is_abstract: false
+        - alias: room
+          type:
+            choices:
+              - PatientRoom
+              - ClinicalSupport
+              - StaffSupport
+          count:
+            min: 3
+            max: 5
+          attributes:
+            is_abstract: false
+      create_edges:
+        - source: matched
+          target: corridor
+          edge_type: door
+        - source: room
+          target: corridor
+          edge_type: door
+          mode: each_to_one
+
 ranking:
   weights:
     validation_passed: 100.0

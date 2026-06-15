@@ -63,6 +63,48 @@ The default YAML config lives at `configs/generic_building.yaml`. It controls th
 
 You can edit this file or pass another YAML file with `--config` to change grammar and validation parameters without changing Python code.
 
+## Grammar Rules
+
+`configs/generic_building.yaml` includes a minimal executable `grammar_rules` section. This is a simple rule schema for the prototype, not a full graph-grammar formalism yet. Rules match nodes by attributes such as `type`, `is_abstract`, or `zone_type`, then create nodes and edges using aliases.
+
+Example:
+
+```yaml
+grammar_rules:
+  - name: expand_zone_to_room_cluster
+    match:
+      type: Zone
+      is_abstract: true
+    action:
+      remove_matched_node: false
+      update_matched_node_attributes:
+        is_abstract: false
+      create_nodes:
+        - alias: corridor
+          type: Corridor
+          count: 1
+          attributes:
+            is_abstract: false
+        - alias: room
+          type:
+            choices:
+              - PatientRoom
+              - ClinicalSupport
+              - StaffSupport
+          count:
+            min: 3
+            max: 5
+          attributes:
+            is_abstract: false
+      create_edges:
+        - source: room
+          target: corridor
+          edge_type: door
+          mode: each_to_one
+```
+
+Supported count forms are fixed integers and `{min, max}` mappings. Supported edge modes are `one_to_one`, `each_to_one`, and `one_to_each`.
+
 ## Candidate Ranking
 
 Candidate ranking is deterministic and metric-based. Each generated graph receives a `final_score` from transparent score components:

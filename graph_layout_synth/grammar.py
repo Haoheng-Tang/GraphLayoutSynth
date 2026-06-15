@@ -8,6 +8,7 @@ from random import Random
 import networkx as nx
 
 from graph_layout_synth.config import LayoutConfig, load_config
+from graph_layout_synth.rule_schema import apply_grammar_rule, node_matches
 
 
 VALID_EDGE_TYPES = {"door", "wall"}
@@ -122,7 +123,34 @@ def complete_expansion(
 ) -> nx.Graph:
     """Expand all abstract nodes in a seed graph."""
     config = config or load_config()
+    if config.grammar_rules:
+        return complete_expansion_from_rules(graph, rng, config)
+
     zone_nodes = expand_floor_to_zones(graph, rng, config)
     for zone_node in zone_nodes:
         expand_zone_to_room_cluster(graph, zone_node, rng, config)
     return graph
+
+
+def complete_expansion_from_rules(
+    graph: nx.Graph,
+    rng: Random,
+    config: LayoutConfig,
+) -> nx.Graph:
+    """Apply simple YAML grammar rules until no matching abstract nodes remain."""
+    max_steps = 100
+    for _ in range(max_steps):
+        progress = False
+        for rule in config.grammar_rules:
+            matches = [
+                node
+                for node in list(graph.nodes)
+                if node in graph and node_matches(graph, node, rule["match"])
+            ]
+            for matched_node in matches:
+                if matched_node in graph and node_matches(graph, matched_node, rule["match"]):
+                    apply_grammar_rule(graph, rule, matched_node, rng)
+                    progress = True
+        if not progress:
+            return graph
+    raise RuntimeError("Grammar rule expansion exceeded 100 steps.")
