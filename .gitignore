@@ -14,7 +14,11 @@ htmlcov/
 venv/
 env/
 outputs/*.json
+outputs/**/*.json
 outputs/*.png
+outputs/**/*.png
 outputs/*.csv
+outputs/**/*.csv
 outputs/*.md
+outputs/**/*.md
 !outputs/.gitkeep
