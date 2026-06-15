@@ -46,6 +46,28 @@ validation:
   require_corridor_access: true
   allow_abstract_nodes_final: false
 
+ranking:
+  weights:
+    validation_passed: 100.0
+    connected_graph: 20.0
+    corridor_access_ratio: 30.0
+    abstract_node_count: -20.0
+    invalid_edge_type_count: -15.0
+    disconnected_graph: -20.0
+    edge_density: 10.0
+    corridor_efficiency: 10.0
+    door_wall_balance: 5.0
+    distance_efficiency: 6.0
+    dead_end_count: -2.0
+    support_mix: 5.0
+  targets:
+    edge_node_ratio: 1.25
+    corridor_fraction: 0.25
+    door_wall_ratio: 4.0
+    room_to_corridor_distance: 1.0
+    max_room_to_corridor_distance_penalty_window: 4.0
+    support_room_ratio: 0.25
+
 visualization:
   node_colors:
     BuildingFloor: "#9e9e9e"

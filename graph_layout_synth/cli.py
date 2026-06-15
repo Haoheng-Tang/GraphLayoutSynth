@@ -69,7 +69,7 @@ def run_generate(args: argparse.Namespace) -> None:
         }
         for index, result in enumerate(results, start=1)
     ]
-    ranked = rank_candidates(candidate_records)
+    ranked = rank_candidates(candidate_records, weights=config.ranking)
     top_k = ranked[: min(args.top_k, len(ranked))]
     best = ranked[0]
     output_path = args.output_dir / "best_candidate.json"
@@ -83,7 +83,8 @@ def run_generate(args: argparse.Namespace) -> None:
         bool(best["metrics"]["validation_passed"]),
         best_result.validation_errors,
         metrics=best["metrics"],
-        ranking_score=best["ranking_score"],
+        final_score=best["final_score"],
+        score_breakdown=best["score_breakdown"],
     )
     export_ranking_report_json(ranked, args.output_dir / "ranking_report.json")
     export_ranking_report_csv(ranked, args.output_dir / "ranking_report.csv")
@@ -102,7 +103,8 @@ def run_generate(args: argparse.Namespace) -> None:
             bool(item["metrics"]["validation_passed"]),
             result.validation_errors,
             metrics=item["metrics"],
-            ranking_score=item["ranking_score"],
+            final_score=item["final_score"],
+            score_breakdown=item["score_breakdown"],
         )
 
     if args.visualize:
@@ -110,13 +112,13 @@ def run_generate(args: argparse.Namespace) -> None:
             visualize_graph(
                 item["graph"],
                 args.output_dir / f"top_{item['rank']}_{item['candidate_id']}.png",
-                title=f"{item['candidate_id']}: score {item['ranking_score']:.1f}",
+                title=f"{item['candidate_id']}: score {item['final_score']:.1f}",
                 config=config,
             )
         visualize_graph(
             best["graph"],
             args.output_dir / "best_candidate.png",
-            title=f"Best candidate: score {best['ranking_score']:.1f}",
+            title=f"Best candidate: score {best['final_score']:.1f}",
             config=config,
         )
 
@@ -124,7 +126,7 @@ def run_generate(args: argparse.Namespace) -> None:
     print(f"Config: {args.config}.")
     print(f"Generated {len(results)} candidate(s).")
     print(f"Valid candidates: {valid_count}.")
-    print(f"Best ranking score: {best['ranking_score']:.1f}.")
+    print(f"Best final score: {best['final_score']:.1f}.")
     print(f"Best graph: {best['metrics']['node_count']} nodes, {best['metrics']['edge_count']} edges.")
     print(f"Saved best candidate to {output_path}.")
     print(f"Saved best report to {report_path}.")
@@ -132,7 +134,7 @@ def run_generate(args: argparse.Namespace) -> None:
     for item in top_k:
         metrics = item["metrics"]
         print(
-            f"  {item['candidate_id']}: score={item['ranking_score']:.1f}, "
+            f"  {item['candidate_id']}: score={item['final_score']:.1f}, "
             f"valid={metrics['validation_passed']}, rooms={metrics['room_count']}, "
             f"corridor_access={metrics['corridor_access_ratio']:.2f}"
         )

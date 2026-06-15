@@ -51,6 +51,12 @@ class VisualizationSettings:
 
 
 @dataclass(frozen=True)
+class RankingSettings:
+    weights: dict[str, float]
+    targets: dict[str, float]
+
+
+@dataclass(frozen=True)
 class LayoutConfig:
     project: ProjectConfig
     random_seed_default: int | None
@@ -61,6 +67,7 @@ class LayoutConfig:
     room_type_counts: dict[str, int]
     stochastic: StochasticConfig
     validation: ValidationSettings
+    ranking: RankingSettings
     visualization: VisualizationSettings
 
 
@@ -109,6 +116,26 @@ def _visualization_settings(config: dict[str, Any]) -> VisualizationSettings:
         raise ConfigError("Config field 'visualization.unknown_node_color' must be a color string.")
 
     return VisualizationSettings(node_colors=node_colors, unknown_node_color=unknown_node_color)
+
+
+def _number_mapping(value: Any, field_name: str) -> dict[str, float]:
+    if not isinstance(value, dict):
+        raise ConfigError(f"Config field '{field_name}' must be a mapping.")
+    converted = {}
+    for key, number in value.items():
+        if not isinstance(key, str) or not isinstance(number, (int, float)) or isinstance(number, bool):
+            raise ConfigError(f"Config field '{field_name}' must map strings to numbers.")
+        converted[key] = float(number)
+    return converted
+
+
+def _ranking_settings(config: dict[str, Any]) -> RankingSettings:
+    ranking = config.get("ranking", {})
+    if not isinstance(ranking, dict):
+        raise ConfigError("Config field 'ranking' must be a mapping.")
+    weights = _number_mapping(ranking.get("weights", {}), "ranking.weights")
+    targets = _number_mapping(ranking.get("targets", {}), "ranking.targets")
+    return RankingSettings(weights=weights, targets=targets)
 
 
 def validate_config(config: dict[str, Any]) -> LayoutConfig:
@@ -199,6 +226,7 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
             require_corridor_access=_require_bool(validation, "require_corridor_access"),
             allow_abstract_nodes_final=_require_bool(validation, "allow_abstract_nodes_final"),
         ),
+        ranking=_ranking_settings(config),
         visualization=_visualization_settings(config),
     )
 

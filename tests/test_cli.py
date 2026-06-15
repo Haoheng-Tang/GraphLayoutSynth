@@ -28,7 +28,11 @@ def test_cli_ranking_report_is_created(tmp_path):
     assert ranking_csv.exists()
     data = json.loads(ranking_report.read_text(encoding="utf-8"))
     assert data[0]["rank"] == 1
-    assert "corridor_access_ratio" in data[0]
+    assert "final_score" in data[0]
+    assert "score_breakdown" in data[0]
+    assert "metrics" in data[0]
+    assert "tie_break_keys" in data[0]
+    assert "corridor_access_ratio" in data[0]["metrics"]
 
 
 def test_cli_evaluate_llm_writes_output(tmp_path, monkeypatch):

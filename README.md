@@ -65,11 +65,25 @@ You can edit this file or pass another YAML file with `--config` to change gramm
 
 ## Candidate Ranking
 
-Candidate ranking is deterministic and metric-based. Each generated graph is scored from transparent metrics such as validation status, graph connectivity, corridor access ratio, abstract node count, and invalid edge type count.
+Candidate ranking is deterministic and metric-based. Each generated graph receives a `final_score` from transparent score components:
+
+* validation pass reward
+* connectivity reward or disconnected penalty
+* corridor access reward
+* edge-density fit
+* corridor-efficiency fit
+* door/wall balance
+* room-to-corridor distance efficiency
+* support-room mix
+* dead-end, invalid-edge, and abstract-node penalties
+
+Ranking reports include `final_score`, `score_breakdown`, `metrics`, and deterministic `tie_break_keys`. The legacy `ranking_score` field is kept as an alias of `final_score` for compatibility.
+
+Ranking weights and heuristic targets, such as the target `edge_node_ratio`, are configured in `configs/generic_building.yaml` under the `ranking` section. This keeps scoring assumptions visible and tunable without editing Python code.
 
 The CLI writes `ranking_report.json` and `ranking_report.csv` under the output directory, keeps saving `best_candidate.json`, and saves top-k graph/report artifacts. When `--visualize` is enabled, it also saves PNGs for the top-k candidates.
 
-LLM-based interpretation may be added later as a separate module, but this ranking step is intentionally explicit and local.
+LLM evaluation interprets the deterministic report, but it does not replace the deterministic ranking or certify validity.
 
 ## LLM Evaluation
 
