@@ -1,102 +1,72 @@
 # AGENTS.md
 
-Working notes for future coding agents on GraphLayoutSynth.
+Concise working notes for future coding agents on GraphLayoutSynth.
 
-## Project Summary
+## Purpose
 
-GraphLayoutSynth is an early-stage Python research prototype for stochastic graph-grammar generation and evaluation of building layout graphs.
+GraphLayoutSynth is an early-stage Python research prototype for stochastic graph-grammar generation and deterministic evaluation of building layout graphs. Graphs are NetworkX graphs with attributed nodes and edges. Generated layouts are not geometric plans, building-code checks, life-safety checks, or compliance-certified designs.
 
-The project currently supports:
+Deterministic validation and ranking are the source of truth. Optional Claude evaluation is report interpretation only.
 
-- stochastic graph generation with NetworkX
-- YAML config loading from `configs/generic_building.yaml`
-- rule-based validation
-- deterministic metric-based candidate ranking
-- JSON/CSV ranking reports
-- candidate JSON reports
-- PNG graph visualization with Matplotlib
-- optional Claude-based LLM interpretation of deterministic reports
+## Current Architecture
 
-Important principle: deterministic validation and ranking are the source of truth. LLM evaluation is optional interpretation only.
+- Python package: `graph_layout_synth`
+- Graph backend: NetworkX
+- Config: YAML, default `configs/generic_building.yaml`
+- CLI commands:
+  - `python -m graph_layout_synth generate`
+  - `python -m graph_layout_synth evaluate-llm`
+- Generation uses a seed graph and stochastic YAML `grammar_rules` when present.
+- Grammar rules support simple exact node-attribute matching, created-node aliases, fixed counts, min/max counts, choice sampling, matched-node updates, optional matched-node removal, and edge modes `one_to_one`, `each_to_one`, `one_to_each`.
+- Outputs include candidate graph JSON, candidate reports, `ranking_report.json`, `ranking_report.csv`, and optional PNG visualizations.
+- Optional Claude evaluation reads deterministic reports and writes markdown.
 
-## Current Branch Context
+## Key Modules
 
-Recent work happened on `feat/ranking-score-refinement`.
+- `config.py`: loads and validates YAML config; defines config dataclasses.
+- `rule_schema.py`: validates and applies executable YAML grammar rules.
+- `grammar.py`: creates the seed graph and orchestrates graph expansion.
+- `generator.py`: generates one or more candidates and returns `GenerationResult`.
+- `validators.py`: checks connectivity, corridor access, edge types, and remaining abstract nodes.
+- `scoring.py`: legacy/simple generation score used as metadata.
+- `ranking.py`: deterministic metrics, `final_score`, `score_breakdown`, and tie-break ranking.
+- `export.py`: node-link graph JSON, candidate reports, ranking JSON, and ranking CSV.
+- `visualize.py`: static Matplotlib PNG graph visualization.
+- `llm_evaluator.py`: optional Claude interpretation; never replaces deterministic ranking.
+- `cli.py`: command-line interface.
 
-Goal of that branch:
+## Branch Discipline
 
-- refine deterministic ranking so valid candidates do not collapse to identical scores
-- keep generator behavior unchanged
-- avoid new LLM behavior, OR-Tools, geometry generation, and UI work
+- Start from `main` unless the user explicitly says otherwise.
+- Do not merge, use, or revive disposed spike/demo UI branches as implementation context.
+- Keep changes small and aligned with the requested branch goal.
+- Preserve existing CLI behavior and tests unless the user explicitly asks for a behavior change.
 
-Implemented ranking refinement:
+## Environment And Dependencies
 
-- added metrics such as `edge_node_ratio`, `room_corridor_ratio`, `door_wall_ratio`, `corridor_fraction`, `dead_end_count`, room-to-corridor distances, and support-room ratios
-- added `final_score`
-- added `score_breakdown`
-- kept `ranking_score` as a backward-compatible alias of `final_score`
-- added deterministic `tie_break_keys`
-- updated ranking and candidate reports so LLM evaluation can understand the score structure
-- moved ranking weights and heuristic targets into `configs/generic_building.yaml` under `ranking`
-
-Before further work, always check:
-
-```bash
-git branch --show-current
-git status --short --ignored
-```
-
-## Environment
-
-Preferred environment:
+Preferred local environment:
 
 ```bash
 mamba activate musa-550-fall-2024
-```
-
-Install editable package:
-
-```bash
 python -m pip install -e ".[dev]"
 ```
 
-Install optional Claude support:
+Optional Claude support:
 
 ```bash
 python -m pip install -e ".[llm]"
 ```
 
-For demo/UI spike branches only:
+Core dependencies are NetworkX, PyYAML, and Matplotlib. Dev dependency is pytest. Do not add heavy dependencies unless explicitly requested.
+
+## Commands
+
+Always check the worktree first:
 
 ```bash
-python -m pip install -e ".[llm,demo]"
+git branch --show-current
+git status --short --ignored
 ```
-
-## Important Local Files
-
-Do not commit secrets or generated outputs.
-
-Ignored local files include:
-
-- `.env`
-- `.env.local`
-- `.env.*.local`
-- `*.egg-info/`
-- `outputs/*.json`
-- `outputs/*.csv`
-- `outputs/*.png`
-- `outputs/*.md`
-- generated caches
-
-`.env.local` should contain:
-
-```text
-ANTHROPIC_API_KEY=your_api_key_here
-```
-
-`.env.example` is safe to commit and contains an empty placeholder.
-
-## Core Commands
 
 Run tests:
 
@@ -104,194 +74,60 @@ Run tests:
 python -m pytest
 ```
 
-Generate ranked candidates:
+Smoke test generation:
 
 ```bash
 python -m graph_layout_synth generate \
   --config configs/generic_building.yaml \
   --num-candidates 5 \
-  --top-k 5 \
+  --top-k 2 \
   --seed 42 \
   --visualize \
-  --output-dir outputs/ranking_refinement_check
+  --output-dir outputs
 ```
 
-Run optional Claude evaluation:
+Optional LLM evaluation after generating reports:
 
 ```bash
 python -m graph_layout_synth evaluate-llm \
-  --ranking-report outputs/ranking_refinement_check/ranking_report.json \
-  --candidate-reports outputs/ranking_refinement_check/top_1_candidate_3_report.json \
-  --output outputs/ranking_refinement_check/llm_evaluation.md \
+  --ranking-report outputs/ranking_report.json \
+  --candidate-reports outputs/top_1_candidate_1_report.json \
+  --output outputs/llm_evaluation.md \
   --model claude-3-5-haiku-latest \
   --env-path .env.local
 ```
 
-The exact `top_*_candidate_*_report.json` file names depend on the ranking output.
+The exact top-k candidate filenames depend on ranking results.
 
-## Package Map
+## Secrets And Outputs
 
-- `graph_layout_synth/config.py`
-  - Loads and validates YAML config.
-  - Defines typed config dataclasses.
+- `.env.local` stores `ANTHROPIC_API_KEY`.
+- Do not commit `.env`, `.env.local`, `.env.*.local`, real API keys, or generated outputs.
+- `.env.example` is safe to commit and should contain only `ANTHROPIC_API_KEY=`.
+- Generated files under `outputs/` are ignored except `outputs/.gitkeep`.
 
-- `graph_layout_synth/grammar.py`
-  - Contains minimal graph grammar expansion rules.
-  - Do not refactor heavily unless the task explicitly asks.
+Typical generated files:
 
-- `graph_layout_synth/generator.py`
-  - Orchestrates candidate generation.
-  - Returns `GenerationResult`.
+- `best_candidate.json`
+- `best_candidate_report.json`
+- `ranking_report.json`
+- `ranking_report.csv`
+- `top_<rank>_candidate_<n>.json`
+- `top_<rank>_candidate_<n>_report.json`
+- optional `best_candidate.png` and `top_<rank>_candidate_<n>.png`
+- optional `llm_evaluation.md`
 
-- `graph_layout_synth/validators.py`
-  - Connectivity, corridor access, edge type, and abstract-node validation.
+## Guardrails
 
-- `graph_layout_synth/scoring.py`
-  - Legacy/simple scoring used by generation metadata.
-  - Ranking refinement is in `ranking.py`.
+- Do not commit `.env.local`.
+- Do not use disposed spike/demo branches as a base or source of truth.
+- Do not replace deterministic ranking with LLM ranking.
+- Do not make live LLM API calls in tests.
+- Do not add heavy dependencies unless requested.
+- Do not implement geometry, OR-Tools, a web UI, deep learning, or product features unless explicitly requested.
+- Do not change generation, ranking, visualization, LLM evaluation, config behavior, or tests on documentation-only branches unless an obvious docs-related fix requires it.
+- Do not claim generated graphs are code-compliant or life-safety certified layouts.
 
-- `graph_layout_synth/ranking.py`
-  - Deterministic candidate ranking.
-  - New ranking output fields are `final_score`, `score_breakdown`, `metrics`, and `tie_break_keys`.
-  - `ranking_score` is retained as alias for compatibility.
-  - Uses defaults from code, but CLI generation passes YAML-defined `config.ranking` settings.
+## Coding Style
 
-- `graph_layout_synth/export.py`
-  - JSON graph export.
-  - Candidate report export.
-  - Ranking report JSON/CSV export.
-
-- `graph_layout_synth/visualize.py`
-  - Static PNG visualization.
-  - Uses config-provided node colors when available.
-
-- `graph_layout_synth/llm_evaluator.py`
-  - Optional Claude interpretation.
-  - Must not replace deterministic ranking.
-  - Tests must mock/isolate live API calls.
-
-- `graph_layout_synth/cli.py`
-  - CLI subcommands:
-    - `generate`
-    - `evaluate-llm`
-
-## Ranking Report Shape
-
-`ranking_report.json` should contain a list of candidates shaped like:
-
-```json
-{
-  "rank": 1,
-  "candidate_id": "candidate_3",
-  "final_score": 179.0076,
-  "ranking_score": 179.0076,
-  "score_breakdown": {
-    "validation": 100.0,
-    "connectivity": 20.0,
-    "corridor_access": 30.0,
-    "edge_density": 9.3336,
-    "corridor_efficiency": 8.888,
-    "door_wall_balance": 2.5,
-    "distance_efficiency": 6.0,
-    "support_mix": 4.286,
-    "dead_end_penalty": -2.0,
-    "invalid_edge_penalty": 0.0,
-    "abstract_node_penalty": 0.0
-  },
-  "metrics": {
-    "node_count": 9,
-    "edge_count": 12,
-    "room_count": 7,
-    "corridor_count": 2,
-    "corridor_access_ratio": 1.0,
-    "edge_node_ratio": 1.3333
-  },
-  "tie_break_keys": {
-    "validation_passed_desc": 1,
-    "corridor_access_ratio_desc": 1.0,
-    "invalid_edge_type_count_asc": 0,
-    "abstract_node_count_asc": 0,
-    "dead_end_count_asc": 1,
-    "edge_node_ratio_desc": 1.3333,
-    "candidate_id_asc": "candidate_3"
-  }
-}
-```
-
-## LLM Evaluation Constraints
-
-LLM evaluation should:
-
-- read deterministic reports
-- summarize and interpret metrics
-- compare top candidates
-- suggest possible repair directions
-
-LLM evaluation must not:
-
-- invent metrics
-- replace deterministic ranking
-- claim code-level correctness
-- assume geometry not present in the graph
-- certify building-code or life-safety compliance
-- generate or repair graphs automatically
-
-## Testing Guidance
-
-Always run:
-
-```bash
-python -m pytest
-```
-
-Tests should not make live Anthropic API calls.
-
-If a task touches ranking, check:
-
-- `tests/test_ranking.py`
-- `tests/test_export.py`
-- `tests/test_cli.py`
-- `tests/test_report_export.py`
-
-If a task touches LLM evaluation, check:
-
-- `tests/test_llm_evaluator.py`
-- `tests/test_cli.py`
-
-## Git Notes
-
-This repo has previously had local Codex checkpoint refs under `.git/refs/codex` that broke `git fetch` with errors like:
-
-```text
-fatal: bad object refs/codex/turn-diffs/checkpoints/...
-```
-
-The fix used locally was:
-
-```bash
-Remove-Item -LiteralPath .git\refs\codex -Recurse -Force
-git config --local --add fetch.hideRefs refs/codex
-git fetch --prune origin
-```
-
-Do not delete normal branches or remote refs when cleaning this up.
-
-## Development Style
-
-Keep changes minimal and readable.
-
-Avoid:
-
-- broad refactors
-- changing generator behavior unless explicitly requested
-- adding OR-Tools
-- adding geometry generation
-- adding web UI unless the branch explicitly asks for it
-- live API calls in tests
-
-Prefer:
-
-- explicit functions
-- dataclasses where helpful
-- deterministic seeds in tests
-- JSON/CSV outputs that remain easy for LLMs and humans to inspect
+Keep changes minimal and readable. Prefer explicit functions, dataclasses where helpful, deterministic seeds in tests, and JSON/CSV outputs that are easy for both humans and LLMs to inspect. Tests touching LLM evaluation must mock or isolate the Anthropic API boundary.
