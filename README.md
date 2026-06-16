@@ -93,9 +93,7 @@ grammar_rules:
       type: Zone
       is_abstract: true
     action:
-      remove_matched_node: false
-      update_matched_node_attributes:
-        is_abstract: false
+      remove_matched_node: true
       create_nodes:
         - alias: corridor
           type: Corridor
@@ -114,9 +112,10 @@ grammar_rules:
           attributes:
             is_abstract: false
       create_edges:
-        - source: matched
-          target: corridor
+        - source: corridor
+          target: __neighbors__
           edge_type: door
+          mode: one_to_each
         - source: room
           target: corridor
           edge_type: door
