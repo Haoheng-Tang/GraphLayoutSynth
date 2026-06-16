@@ -11,6 +11,8 @@ It represents layouts as attributed NetworkX graphs:
 
 Generated graphs are research prototypes. They are not geometric plans, construction documents, building-code checks, life-safety checks, or compliance-certified layouts.
 
+![RAG-augmented graph generation workflow](rag_augmented_graph_generation_workflow.png)
+
 ## Current Pipeline
 
 ```text
