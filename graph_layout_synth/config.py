@@ -69,6 +69,7 @@ class LayoutConfig:
     validation: ValidationSettings
     ranking: RankingSettings
     visualization: VisualizationSettings
+    grammar_rules: list[dict[str, Any]]
 
 
 def _require_mapping(data: dict[str, Any], key: str) -> dict[str, Any]:
@@ -142,6 +143,7 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
     """Validate a raw config dictionary and return a typed config."""
     if not isinstance(config, dict):
         raise ConfigError("Config must be a mapping.")
+    from graph_layout_synth.rule_schema import RuleSchemaError, load_grammar_rules
 
     project = _require_mapping(config, "project")
     generation = _require_mapping(config, "generation")
@@ -205,6 +207,11 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
             + "."
         )
 
+    try:
+        grammar_rules = load_grammar_rules(config)
+    except RuleSchemaError as exc:
+        raise ConfigError(str(exc)) from exc
+
     return LayoutConfig(
         project=ProjectConfig(name=project_name, building_type=building_type),
         random_seed_default=random_seed_default,
@@ -228,6 +235,7 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
         ),
         ranking=_ranking_settings(config),
         visualization=_visualization_settings(config),
+        grammar_rules=grammar_rules,
     )
 
 
