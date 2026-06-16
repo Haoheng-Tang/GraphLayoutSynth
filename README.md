@@ -1,71 +1,86 @@
 # GraphLayoutSynth
 
-Stochastic graph-grammar generation and evaluation for building layout graphs.
+GraphLayoutSynth is an early-stage Python research prototype for generating and evaluating building layout graphs with stochastic graph-grammar rules.
 
-## Overview
+It represents layouts as attributed NetworkX graphs:
 
-GraphLayoutSynth is an early-stage research prototype for generating building layout graphs using procedural graph-grammar rules, stochastic sampling, and rule-based validation.
+- nodes are spaces such as floors, zones, corridors, patient rooms, and support rooms
+- edges are relationships such as door connections or wall adjacencies
+- deterministic validation and metric-based ranking are the source of truth
+- optional Claude evaluation can interpret reports, but does not rank, repair, or certify layouts
 
-The project represents building layouts as attributed graphs:
+Generated graphs are research prototypes. They are not geometric plans, construction documents, building-code checks, life-safety checks, or compliance-certified layouts.
 
-* Nodes represent spaces such as rooms, corridors, zones, or service areas.
-* Edges represent spatial relationships such as door connections or wall adjacencies.
-* Node attributes may include room type, area, aspect ratio, orientation, zone, and other spatial or functional properties.
-* Edge attributes may include connection type, adjacency type, or circulation relationship.
+## Current Pipeline
 
-The initial goal is not to train a deep graph generative model. Instead, the project explores a small-data, rule-guided approach where candidate layout graphs are generated through stochastic procedural rules and evaluated using explicit constraints and metrics.
+```text
+YAML configuration and grammar_rules
+  -> stochastic NetworkX graph generation
+  -> rule-based validation
+  -> deterministic metric ranking
+  -> JSON/CSV reports and optional PNG visualization
+  -> optional Claude interpretation of deterministic reports
+```
 
-## Milestone 1
+The package is `graph_layout_synth`. The CLI entry point is:
 
-**Minimal stochastic graph-grammar prototype**
+```bash
+python -m graph_layout_synth
+```
 
-The current implementation generates small building layout graphs from explicit stochastic grammar rules, validates them, scores them, and exports the best candidate to JSON.
+## Installation
 
-Implemented features:
-
-* Define a seed graph such as `BuildingFloor`.
-* Expand abstract nodes into zones, room clusters, corridors, and rooms.
-* Add stochastic rule parameters such as zone count, room count, and room-type mix.
-* Validate generated graphs using basic constraints.
-* Score and rank feasible candidates.
-* Export generated graphs as JSON.
-
-## Quickstart
-
-Use the requested mamba environment:
+Use the local project environment if available:
 
 ```bash
 mamba activate musa-550-fall-2024
 python -m pip install -e ".[dev]"
 ```
 
-Generate candidates:
+Core dependencies are NetworkX, PyYAML, and Matplotlib. Development installs also include pytest.
+
+Install optional Claude support only when you need LLM report interpretation:
 
 ```bash
-python -m graph_layout_synth generate --config configs/generic_building.yaml --num-candidates 10 --seed 42 --output-dir outputs
+python -m pip install -e ".[llm]"
 ```
 
-Generate candidates with PNG visualizations:
+Create `.env.local` at the repository root for local Claude evaluation:
 
-```bash
-python -m graph_layout_synth generate --config configs/generic_building.yaml --num-candidates 10 --seed 42 --visualize
+```text
+ANTHROPIC_API_KEY=your_api_key_here
 ```
 
-Rank candidates and save the top candidates:
-
-```bash
-python -m graph_layout_synth generate --config configs/generic_building.yaml --num-candidates 50 --top-k 5 --seed 42 --visualize
-```
+Do not commit `.env.local`. The committed `.env.example` contains only an empty placeholder.
 
 ## Configuration
 
-The default YAML config lives at `configs/generic_building.yaml`. It controls the project/building type name, default seed, candidate count, allowed node and edge types, zone types, room type mix, stochastic cluster parameters, corridor pattern choices, basic validation settings, and visualization colors.
+The default config is `configs/generic_building.yaml`. It defines:
 
-You can edit this file or pass another YAML file with `--config` to change grammar and validation parameters without changing Python code.
+- project metadata and default random seed
+- generation defaults such as candidate count
+- allowed node and edge types
+- room type counts and stochastic generation settings
+- validation settings
+- explicit executable `grammar_rules`
+- deterministic ranking weights and targets
+- visualization colors
+
+Pass another YAML file with `--config` to run the same pipeline with different settings.
 
 ## Grammar Rules
 
-`configs/generic_building.yaml` includes a minimal executable `grammar_rules` section. This is a simple rule schema for the prototype, not a full graph-grammar formalism yet. Rules match nodes by attributes such as `type`, `is_abstract`, or `zone_type`, then create nodes and edges using aliases.
+`grammar_rules` are a small executable YAML rule schema, not a full graph-grammar formalism. Rules match nodes by exact attribute values, then update matched nodes, create nodes, create edges, and optionally remove the matched node.
+
+Supported features include:
+
+- simple node-attribute matching, such as `type: Zone` and `is_abstract: true`
+- fixed counts, such as `count: 1`
+- stochastic min/max counts, such as `count: {min: 3, max: 5}`
+- stochastic choices, such as `type: {choices: [PatientRoom, ClinicalSupport]}`
+- created-node aliases for edge creation
+- edge modes: `one_to_one`, `each_to_one`, and `one_to_each`
+- the special `matched` alias, plus `__neighbors__` for existing neighbors
 
 Example:
 
@@ -97,114 +112,123 @@ grammar_rules:
           attributes:
             is_abstract: false
       create_edges:
+        - source: matched
+          target: corridor
+          edge_type: door
         - source: room
           target: corridor
           edge_type: door
           mode: each_to_one
 ```
 
-Supported count forms are fixed integers and `{min, max}` mappings. Supported edge modes are `one_to_one`, `each_to_one`, and `one_to_each`.
+The generator still contains older built-in expansion helpers, but config-defined grammar rules are used when present.
+
+## Generate Graphs
+
+Generate ranked candidates:
+
+```bash
+python -m graph_layout_synth generate \
+  --config configs/generic_building.yaml \
+  --num-candidates 5 \
+  --top-k 2 \
+  --seed 42 \
+  --output-dir outputs
+```
+
+Generate ranked candidates with PNG visualizations:
+
+```bash
+python -m graph_layout_synth generate \
+  --config configs/generic_building.yaml \
+  --num-candidates 5 \
+  --top-k 2 \
+  --seed 42 \
+  --visualize \
+  --output-dir outputs
+```
 
 ## Candidate Ranking
 
-Candidate ranking is deterministic and metric-based. Each generated graph receives a `final_score` from transparent score components:
+Ranking is deterministic and metric-based. Each candidate receives:
 
-* validation pass reward
-* connectivity reward or disconnected penalty
-* corridor access reward
-* edge-density fit
-* corridor-efficiency fit
-* door/wall balance
-* room-to-corridor distance efficiency
-* support-room mix
-* dead-end, invalid-edge, and abstract-node penalties
+- `final_score`
+- backward-compatible `ranking_score`
+- `score_breakdown`
+- `metrics`
+- deterministic `tie_break_keys`
 
-Ranking reports include `final_score`, `score_breakdown`, `metrics`, and deterministic `tie_break_keys`. The legacy `ranking_score` field is kept as an alias of `final_score` for compatibility.
+Metrics include counts, validation status, corridor access ratio, edge-node ratio, room-corridor ratio, door-wall ratio, corridor fraction, room-to-corridor distances, dead ends, support-room ratio, abstract-node count, and invalid-edge count.
 
-Ranking weights and heuristic targets, such as the target `edge_node_ratio`, are configured in `configs/generic_building.yaml` under the `ranking` section. This keeps scoring assumptions visible and tunable without editing Python code.
+Score components include validation, connectivity, corridor access, edge density, corridor efficiency, door/wall balance, distance efficiency, support mix, and penalties for dead ends, invalid edges, and abstract nodes. Ranking weights and heuristic targets live in the config under `ranking`.
 
-The CLI writes `ranking_report.json` and `ranking_report.csv` under the output directory, keeps saving `best_candidate.json`, and saves top-k graph/report artifacts. When `--visualize` is enabled, it also saves PNGs for the top-k candidates.
+The older simple `score` in candidate reports is generation metadata. Use `final_score`, `score_breakdown`, and `metrics` for deterministic ranking interpretation.
 
-LLM evaluation interprets the deterministic report, but it does not replace the deterministic ranking or certify validity.
+## Outputs
 
-## LLM Evaluation
+The `generate` command writes these files under `--output-dir`:
 
-LLM evaluation is optional. It reads deterministic ranking and candidate reports, then asks Claude for a natural-language interpretation. It does not replace deterministic ranking, does not generate graphs, and should not be treated as a validity certificate.
+- `best_candidate.json`: NetworkX node-link JSON for the top-ranked candidate
+- `best_candidate_report.json`: validation, count, metric, and score summary for the top candidate
+- `ranking_report.json`: full deterministic ranking report without embedded graph objects
+- `ranking_report.csv`: compact tabular ranking report
+- `top_<rank>_candidate_<n>.json`: node-link JSON for each top-k candidate
+- `top_<rank>_candidate_<n>_report.json`: report for each top-k candidate
+- `best_candidate.png` and `top_<rank>_candidate_<n>.png`: optional visualizations when `--visualize` is used
 
-Install the optional Anthropic dependency when you want to use this command:
+Generated output artifacts are intentionally ignored by git, except `outputs/.gitkeep`.
 
-```bash
-python -m pip install -e ".[llm]"
-```
+## Claude LLM Evaluation
 
-Create `.env.local` at the repository root:
+The optional `evaluate-llm` command reads deterministic ranking and candidate reports, calls Claude, and writes a markdown interpretation. It can summarize tradeoffs, compare top candidates, and suggest possible repair directions.
 
-```text
-ANTHROPIC_API_KEY=your_api_key_here
-```
+It must not be treated as a replacement for deterministic ranking, a code-level correctness check, a graph repair tool, or a building-code/life-safety certification.
 
-Run evaluation:
+Example:
 
 ```bash
 python -m graph_layout_synth evaluate-llm \
   --ranking-report outputs/ranking_report.json \
-  --candidate-reports outputs/top_candidate_000_report.json outputs/top_candidate_001_report.json \
-  --output outputs/llm_evaluation.md
+  --candidate-reports outputs/top_1_candidate_1_report.json outputs/top_2_candidate_2_report.json \
+  --output outputs/llm_evaluation.md \
+  --model claude-3-5-haiku-latest \
+  --env-path .env.local
 ```
 
-The LLM can summarize, compare, critique, and suggest possible repair directions for top candidates. Deterministic metrics and ranking remain the primary ranking method.
+The exact top-k candidate report names depend on the generated ranking.
+
+## Development
 
 Run tests:
 
 ```bash
-pytest
+python -m pytest
 ```
 
-## Initial Scope
+Run a smoke test:
 
-The first prototype will support generic building layout graphs rather than one specific building type.
-
-Example room or space types may include:
-
-* Corridor
-* PatientRoom
-* ClinicalSupport
-* StaffSupport
-* PublicZone
-* PrivateZone
-* VerticalCore
-
-Example edge types may include:
-
-* Door connection
-* Wall adjacency
-
-## Method
-
-The initial generation pipeline is:
-
-```text
-Structured grammar rules
-        ↓
-Stochastic graph-rewrite generator
-        ↓
-Rule-based constraint checker
-        ↓
-Metric-based candidate scoring
-        ↓
-Candidate export and interpretation
+```bash
+python -m graph_layout_synth generate \
+  --config configs/generic_building.yaml \
+  --num-candidates 5 \
+  --top-k 2 \
+  --seed 42 \
+  --visualize \
+  --output-dir outputs
 ```
 
-Large language models may be used later as auxiliary tools for rule formalization, candidate interpretation, and ranking, but the core generation engine is intended to remain explicit and inspectable.
+Tests must not make live Anthropic API calls. LLM-related tests should mock or isolate the optional API boundary.
 
-## Branch
+## Package Map
 
-Initial development branch:
-
-```text
-m1_stochastic_grammar
-```
-
-## Status
-
-Early research prototype.
+- `graph_layout_synth/config.py`: YAML loading, validation, and typed config dataclasses
+- `graph_layout_synth/rule_schema.py`: executable YAML grammar rule validation and application
+- `graph_layout_synth/grammar.py`: seed graph and expansion orchestration
+- `graph_layout_synth/generator.py`: candidate generation and generation metadata
+- `graph_layout_synth/validators.py`: graph validity checks
+- `graph_layout_synth/scoring.py`: legacy/simple generation score
+- `graph_layout_synth/ranking.py`: deterministic candidate metrics, scoring, and ranking
+- `graph_layout_synth/export.py`: graph, candidate report, and ranking report export
+- `graph_layout_synth/visualize.py`: static PNG graph visualization
+- `graph_layout_synth/llm_evaluator.py`: optional Claude interpretation of deterministic reports
+- `graph_layout_synth/cli.py`: `generate` and `evaluate-llm` commands
