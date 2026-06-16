@@ -42,6 +42,7 @@ def test_generation_trace_records_sampled_parameters_and_is_deterministic():
     assert cluster_events
     assert all("create_nodes" in event.sampled_parameters for event in cluster_events)
     assert all(event.created_edges for event in cluster_events)
+    assert all(event.removed_node_ids == [event.matched_node_id] for event in cluster_events)
 
 
 def test_trace_json_export_and_summary(tmp_path):

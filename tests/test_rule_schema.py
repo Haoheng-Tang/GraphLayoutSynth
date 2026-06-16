@@ -44,16 +44,16 @@ def test_choice_sampling_from_list():
     assert sampled in {"PatientRoom", "ClinicalSupport"}
 
 
-def test_generation_uses_config_defined_rules():
+def test_generation_uses_config_defined_rules_without_final_zone_nodes():
     config = load_config(DEFAULT_CONFIG_PATH)
     result = generate_candidate(seed=42, config=config)
 
-    zone_types = {
-        attrs.get("zone_type")
+    node_types = {
+        attrs.get("type")
         for _, attrs in result.graph.nodes(data=True)
-        if attrs.get("type") == "Zone"
     }
-    assert {"PublicZone", "PrivateZone", "ServiceZone"}.issubset(zone_types)
+    assert "Zone" not in node_types
+    assert "Corridor" in node_types
     assert result.is_valid
 
 
