@@ -279,6 +279,7 @@ def rank_candidates(
                 "ranking_score": final_score,
                 "tie_break_keys": tie_keys,
                 "export_paths": _candidate_value(candidate, "export_paths", {}),
+                "trace_metadata": _candidate_value(candidate, "trace_metadata", {}),
             }
         )
 

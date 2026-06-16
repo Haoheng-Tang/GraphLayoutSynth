@@ -15,6 +15,7 @@ from graph_layout_synth.export import (
 from graph_layout_synth.generator import generate_candidates
 from graph_layout_synth.llm_evaluator import LlmEvaluationError, evaluate_candidates_with_llm
 from graph_layout_synth.ranking import rank_candidates
+from graph_layout_synth.tracing import export_trace_json, export_trace_summary, trace_metadata
 from graph_layout_synth.visualize import visualize_graph
 
 
@@ -60,22 +61,36 @@ def run_generate(args: argparse.Namespace) -> None:
     if args.top_k < 1:
         raise SystemExit("--top-k must be at least 1.")
 
-    results = generate_candidates(num_candidates, seed, config)
+    results = generate_candidates(num_candidates, seed, config, trace=True)
+    candidate_trace_metadata = []
+    for index, result in enumerate(results, start=1):
+        trace_path = args.output_dir / f"candidate_{index}_trace.json"
+        trace_summary_path = args.output_dir / f"candidate_{index}_trace.md"
+        export_trace_json(result.trace, trace_path)
+        export_trace_summary(result.trace, trace_summary_path)
+        candidate_trace_metadata.append(trace_metadata(result.trace, trace_path))
+
     candidate_records = [
         {
             "candidate_id": f"candidate_{index}",
             "graph": result.graph,
             "validation_report": None,
+            "trace_metadata": candidate_trace_metadata[index - 1],
         }
         for index, result in enumerate(results, start=1)
     ]
     ranked = rank_candidates(candidate_records, weights=config.ranking)
     top_k = ranked[: min(args.top_k, len(ranked))]
     best = ranked[0]
+    best_result = results[int(best["candidate_id"].split("_")[-1]) - 1]
+    best_trace_path = args.output_dir / "best_candidate_trace.json"
+    best_trace_summary_path = args.output_dir / "best_candidate_trace.md"
+    export_trace_json(best_result.trace, best_trace_path)
+    export_trace_summary(best_result.trace, best_trace_summary_path)
+    best_trace_metadata = trace_metadata(best_result.trace, best_trace_path)
     output_path = args.output_dir / "best_candidate.json"
     export_graph_json(best["graph"], output_path)
     report_path = args.output_dir / "best_candidate_report.json"
-    best_result = results[int(best["candidate_id"].split("_")[-1]) - 1]
     export_report_json(
         best["graph"],
         report_path,
@@ -85,6 +100,7 @@ def run_generate(args: argparse.Namespace) -> None:
         metrics=best["metrics"],
         final_score=best["final_score"],
         score_breakdown=best["score_breakdown"],
+        trace_metadata=best_trace_metadata,
     )
     export_ranking_report_json(ranked, args.output_dir / "ranking_report.json")
     export_ranking_report_csv(ranked, args.output_dir / "ranking_report.csv")
@@ -95,6 +111,11 @@ def run_generate(args: argparse.Namespace) -> None:
         prefix = f"top_{item['rank']}_{item['candidate_id']}"
         graph_path = args.output_dir / f"{prefix}.json"
         report_candidate_path = args.output_dir / f"{prefix}_report.json"
+        top_trace_path = args.output_dir / f"{prefix}_trace.json"
+        top_trace_summary_path = args.output_dir / f"{prefix}_trace.md"
+        export_trace_json(result.trace, top_trace_path)
+        export_trace_summary(result.trace, top_trace_summary_path)
+        top_trace_metadata = trace_metadata(result.trace, top_trace_path)
         export_graph_json(item["graph"], graph_path)
         export_report_json(
             item["graph"],
@@ -105,6 +126,7 @@ def run_generate(args: argparse.Namespace) -> None:
             metrics=item["metrics"],
             final_score=item["final_score"],
             score_breakdown=item["score_breakdown"],
+            trace_metadata=top_trace_metadata,
         )
 
     if args.visualize:

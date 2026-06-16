@@ -38,6 +38,7 @@ def graph_report_data(
     ranking_score: float | None = None,
     final_score: float | None = None,
     score_breakdown: dict | None = None,
+    trace_metadata: dict | None = None,
 ) -> dict:
     """Build a compact JSON-serializable report for a generated graph."""
     type_counts = Counter(
@@ -65,6 +66,8 @@ def graph_report_data(
         report["ranking_score"] = resolved_final_score
     if score_breakdown is not None:
         report["score_breakdown"] = score_breakdown
+    if trace_metadata is not None:
+        report.update(trace_metadata)
     return report
 
 
@@ -78,6 +81,7 @@ def export_report_json(
     ranking_score: float | None = None,
     final_score: float | None = None,
     score_breakdown: dict | None = None,
+    trace_metadata: dict | None = None,
 ) -> Path:
     """Write validation, score, and count metadata to JSON."""
     path = Path(output_path)
@@ -91,6 +95,7 @@ def export_report_json(
         ranking_score,
         final_score,
         score_breakdown,
+        trace_metadata,
     )
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return path
@@ -119,7 +124,7 @@ def export_ranking_report_csv(ranked_candidates: list[dict], output_path: str | 
 
 
 def _ranking_report_json_row(candidate: dict) -> dict:
-    return {
+    row = {
         "rank": candidate["rank"],
         "candidate_id": candidate["candidate_id"],
         "final_score": candidate["final_score"],
@@ -128,11 +133,14 @@ def _ranking_report_json_row(candidate: dict) -> dict:
         "metrics": candidate["metrics"],
         "tie_break_keys": candidate["tie_break_keys"],
     }
+    row.update(candidate.get("trace_metadata", {}))
+    return row
 
 
 def _ranking_report_csv_row(candidate: dict) -> dict:
     metrics = candidate["metrics"]
     tie_break_keys = candidate["tie_break_keys"]
+    trace_metadata = candidate.get("trace_metadata", {})
     return {
         "rank": candidate["rank"],
         "candidate_id": candidate["candidate_id"],
@@ -165,4 +173,8 @@ def _ranking_report_csv_row(candidate: dict) -> dict:
         "tie_dead_end_count_asc": tie_break_keys["dead_end_count_asc"],
         "tie_edge_node_ratio_desc": tie_break_keys["edge_node_ratio_desc"],
         "tie_candidate_id_asc": tie_break_keys["candidate_id_asc"],
+        "trace_path": trace_metadata.get("trace_path", ""),
+        "trace_length": trace_metadata.get("trace_length", 0),
+        "applied_rule_names": ";".join(trace_metadata.get("applied_rule_names", [])),
+        "applied_rule_counts": json.dumps(trace_metadata.get("applied_rule_counts", {}), sort_keys=True),
     }

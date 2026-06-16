@@ -11,6 +11,8 @@ It represents layouts as attributed NetworkX graphs:
 
 Generated graphs are research prototypes. They are not geometric plans, construction documents, building-code checks, life-safety checks, or compliance-certified layouts.
 
+![RAG-augmented graph generation workflow](rag_augmented_graph_generation_workflow.png)
+
 ## Current Pipeline
 
 ```text
@@ -123,6 +125,20 @@ grammar_rules:
 
 The generator still contains older built-in expansion helpers, but config-defined grammar rules are used when present.
 
+## Rule Application Tracing
+
+The `generate` command exports a lightweight rule-application trace for each generated candidate. Trace files show how a candidate was produced, including the rule applied at each step, the matched node and attributes, sampled counts and choices, created nodes, created edges, and removed nodes.
+
+Tracing is useful for debugging grammar behavior, explaining why two seeded candidates differ, and giving deterministic reports more provenance without changing ranking behavior.
+
+Trace artifacts are saved under `--output-dir` alongside graph and report files:
+
+- `candidate_<n>_trace.json` and `candidate_<n>_trace.md` for every generated candidate
+- `best_candidate_trace.json` and `best_candidate_trace.md` for the top-ranked candidate
+- `top_<rank>_candidate_<n>_trace.json` and `.md` for each exported top-k candidate
+
+Candidate reports and ranking reports include compact trace metadata: `trace_path`, `trace_length`, `applied_rule_names`, and `applied_rule_counts`. Inspect the JSON trace for full step details or the markdown trace for a short human-readable summary.
+
 ## Generate Graphs
 
 Generate ranked candidates:
@@ -174,6 +190,9 @@ The `generate` command writes these files under `--output-dir`:
 - `ranking_report.csv`: compact tabular ranking report
 - `top_<rank>_candidate_<n>.json`: node-link JSON for each top-k candidate
 - `top_<rank>_candidate_<n>_report.json`: report for each top-k candidate
+- `candidate_<n>_trace.json` and `candidate_<n>_trace.md`: rule-application trace for each generated candidate
+- `best_candidate_trace.json` and `best_candidate_trace.md`: trace aliases for the top-ranked candidate
+- `top_<rank>_candidate_<n>_trace.json` and `.md`: trace aliases for exported top-k candidates
 - `best_candidate.png` and `top_<rank>_candidate_<n>.png`: optional visualizations when `--visualize` is used
 
 Generated output artifacts are intentionally ignored by git, except `outputs/.gitkeep`.

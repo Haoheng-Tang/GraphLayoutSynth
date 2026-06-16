@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 from random import Random
 
 import networkx as nx
@@ -10,6 +11,7 @@ import networkx as nx
 from graph_layout_synth.config import LayoutConfig, load_config
 from graph_layout_synth.grammar import complete_expansion, seed_graph
 from graph_layout_synth.scoring import score_graph
+from graph_layout_synth.tracing import RuleApplicationTraceEvent
 from graph_layout_synth.validators import validate_graph
 
 
@@ -21,11 +23,13 @@ class GenerationResult:
     score: float
     is_valid: bool
     validation_errors: list[str]
+    trace: list[RuleApplicationTraceEvent] = field(default_factory=list)
 
 
 def generate_candidate(
     seed: int | None = None,
     config: LayoutConfig | None = None,
+    trace: bool = False,
 ) -> GenerationResult:
     """Generate one complete candidate graph.
 
@@ -35,7 +39,8 @@ def generate_candidate(
     if seed is None:
         seed = config.random_seed_default
     rng = Random(seed)
-    graph = complete_expansion(seed_graph(config), rng, config)
+    trace_events: list[RuleApplicationTraceEvent] | None = [] if trace else None
+    graph = complete_expansion(seed_graph(config), rng, config, trace_events)
     validation = validate_graph(graph, config)
     score = score_graph(graph, validation)
     return GenerationResult(
@@ -43,6 +48,7 @@ def generate_candidate(
         score=score,
         is_valid=validation.is_valid,
         validation_errors=validation.errors,
+        trace=trace_events or [],
     )
 
 
@@ -50,6 +56,7 @@ def generate_candidates(
     num_candidates: int,
     seed: int | None = None,
     config: LayoutConfig | None = None,
+    trace: bool = False,
 ) -> list[GenerationResult]:
     """Generate multiple candidates using deterministic per-candidate seeds."""
     config = config or load_config()
@@ -59,7 +66,7 @@ def generate_candidates(
     results = []
     for _ in range(num_candidates):
         candidate_seed = rng.randint(0, 2**32 - 1)
-        results.append(generate_candidate(candidate_seed, config))
+        results.append(generate_candidate(candidate_seed, config, trace=trace))
     return results
 
 
