@@ -7,6 +7,8 @@ from typing import Any
 
 import networkx as nx
 
+from graph_layout_synth.tracing import RuleApplicationTraceEvent
+
 
 class RuleSchemaError(ValueError):
     """Raised when a grammar rule is malformed or unsupported."""
@@ -102,11 +104,22 @@ def node_matches(graph: nx.Graph, node: str, match: dict) -> bool:
     return all(attrs.get(key) == value for key, value in match.items())
 
 
-def apply_grammar_rule(graph: nx.Graph, rule: dict, matched_node: str, rng: Random) -> list[str]:
+def apply_grammar_rule(
+    graph: nx.Graph,
+    rule: dict,
+    matched_node: str,
+    rng: Random,
+    trace_events: list[RuleApplicationTraceEvent] | None = None,
+    step_index: int | None = None,
+) -> list[str]:
     """Apply one grammar rule to one matched node and return created node ids."""
     action = rule["action"]
     neighbors = list(graph.neighbors(matched_node))
     alias_nodes: dict[str, list[str]] = {"matched": [matched_node]}
+    matched_node_attrs = dict(graph.nodes[matched_node])
+    sampled_parameters: dict[str, Any] = {"create_nodes": [], "create_edges": []}
+    created_edges: list[dict[str, str]] = []
+    removed_node_ids: list[str] = []
 
     update_attrs = action.get("update_matched_node_attributes", {})
     if update_attrs:
@@ -126,21 +139,56 @@ def apply_grammar_rule(graph: nx.Graph, rule: dict, matched_node: str, rng: Rand
             attrs.setdefault("zone", _default_zone(graph, matched_node, node_id))
             graph.add_node(node_id, **attrs)
             alias_nodes[alias].append(node_id)
+        sampled_parameters["create_nodes"].append(
+            {
+                "alias": alias,
+                "count": count,
+                "type": [graph.nodes[node].get("type") for node in alias_nodes[alias]],
+            }
+        )
 
     for entry in action.get("create_edges", []):
         sources = _resolve_alias(entry["source"], alias_nodes, neighbors)
         targets = _resolve_alias(entry["target"], alias_nodes, neighbors)
-        _create_edges(graph, sources, targets, entry.get("mode", "one_to_one"), entry["edge_type"])
+        mode = entry.get("mode", "one_to_one")
+        edge_type = entry["edge_type"]
+        new_edges = _create_edges(graph, sources, targets, mode, edge_type)
+        created_edges.extend(new_edges)
+        sampled_parameters["create_edges"].append(
+            {
+                "source": entry["source"],
+                "target": entry["target"],
+                "mode": mode,
+                "edge_type": edge_type,
+                "created_edge_count": len(new_edges),
+            }
+        )
 
     if action.get("remove_matched_node", False):
+        removed_node_ids.append(matched_node)
         graph.remove_node(matched_node)
 
-    return [
+    created_node_ids = [
         node
         for alias, nodes in alias_nodes.items()
         if alias != "matched"
         for node in nodes
     ]
+    if trace_events is not None:
+        trace_events.append(
+            RuleApplicationTraceEvent(
+                step_index=step_index if step_index is not None else len(trace_events) + 1,
+                rule_name=rule["name"],
+                matched_node_id=matched_node,
+                matched_node_attrs=matched_node_attrs,
+                sampled_parameters=sampled_parameters,
+                created_node_ids=created_node_ids,
+                created_edges=created_edges,
+                removed_node_ids=removed_node_ids,
+            )
+        )
+
+    return created_node_ids
 
 
 def _created_node_id(graph: nx.Graph, matched_node: str, alias: str, index: int, count: int) -> str:
@@ -169,16 +217,21 @@ def _resolve_alias(name: str, alias_nodes: dict[str, list[str]], neighbors: list
     return alias_nodes[name]
 
 
-def _create_edges(graph: nx.Graph, sources: list[str], targets: list[str], mode: str, edge_type: str) -> None:
+def _create_edges(graph: nx.Graph, sources: list[str], targets: list[str], mode: str, edge_type: str) -> list[dict[str, str]]:
+    created_edges = []
     if not sources or not targets:
-        return
+        return created_edges
     if mode == "each_to_one":
         for source in sources:
             graph.add_edge(source, targets[0], edge_type=edge_type)
-        return
+            created_edges.append({"source": source, "target": targets[0], "edge_type": edge_type})
+        return created_edges
     if mode == "one_to_each":
         for target in targets:
             graph.add_edge(sources[0], target, edge_type=edge_type)
-        return
+            created_edges.append({"source": sources[0], "target": target, "edge_type": edge_type})
+        return created_edges
     for source, target in zip(sources, targets):
         graph.add_edge(source, target, edge_type=edge_type)
+        created_edges.append({"source": source, "target": target, "edge_type": edge_type})
+    return created_edges

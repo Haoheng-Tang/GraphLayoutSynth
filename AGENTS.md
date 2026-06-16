@@ -18,13 +18,15 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
   - `python -m graph_layout_synth evaluate-llm`
 - Generation uses a seed graph and stochastic YAML `grammar_rules` when present.
 - Grammar rules support simple exact node-attribute matching, created-node aliases, fixed counts, min/max counts, choice sampling, matched-node updates, optional matched-node removal, and edge modes `one_to_one`, `each_to_one`, `one_to_each`.
-- Outputs include candidate graph JSON, candidate reports, `ranking_report.json`, `ranking_report.csv`, and optional PNG visualizations.
+- Rule-application tracing records applied rule order, matched nodes, sampled parameters, created nodes/edges, and removed nodes.
+- Outputs include candidate graph JSON, candidate reports, trace JSON/markdown, `ranking_report.json`, `ranking_report.csv`, and optional PNG visualizations.
 - Optional Claude evaluation reads deterministic reports and writes markdown.
 
 ## Key Modules
 
 - `config.py`: loads and validates YAML config; defines config dataclasses.
 - `rule_schema.py`: validates and applies executable YAML grammar rules.
+- `tracing.py`: trace event dataclass, trace JSON/markdown export, and compact trace metadata helpers.
 - `grammar.py`: creates the seed graph and orchestrates graph expansion.
 - `generator.py`: generates one or more candidates and returns `GenerationResult`.
 - `validators.py`: checks connectivity, corridor access, edge types, and remaining abstract nodes.
@@ -110,10 +112,16 @@ Typical generated files:
 
 - `best_candidate.json`
 - `best_candidate_report.json`
+- `best_candidate_trace.json`
+- `best_candidate_trace.md`
 - `ranking_report.json`
 - `ranking_report.csv`
+- `candidate_<n>_trace.json`
+- `candidate_<n>_trace.md`
 - `top_<rank>_candidate_<n>.json`
 - `top_<rank>_candidate_<n>_report.json`
+- `top_<rank>_candidate_<n>_trace.json`
+- `top_<rank>_candidate_<n>_trace.md`
 - optional `best_candidate.png` and `top_<rank>_candidate_<n>.png`
 - optional `llm_evaluation.md`
 
