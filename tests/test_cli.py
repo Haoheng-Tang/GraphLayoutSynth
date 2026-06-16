@@ -25,11 +25,15 @@ def test_cli_ranking_report_is_created(tmp_path):
     ranking_csv = tmp_path / "ranking_report.csv"
     candidate_trace = tmp_path / "candidate_1_trace.json"
     best_trace = tmp_path / "best_candidate_trace.json"
+    candidate_review_summary = tmp_path / "candidate_1_review_summary.json"
+    pool_review_summary = tmp_path / "review_summary.json"
 
     assert ranking_report.exists()
     assert ranking_csv.exists()
     assert candidate_trace.exists()
     assert best_trace.exists()
+    assert candidate_review_summary.exists()
+    assert pool_review_summary.exists()
     assert list(tmp_path.glob("top_1_candidate_*_trace.json"))
     data = json.loads(ranking_report.read_text(encoding="utf-8"))
     assert data[0]["rank"] == 1
@@ -40,7 +44,12 @@ def test_cli_ranking_report_is_created(tmp_path):
     assert "trace_path" in data[0]
     assert data[0]["trace_length"] > 0
     assert "expand_floor_to_zones" in data[0]["applied_rule_names"]
+    assert data[0]["review_summary_path"].endswith("_review_summary.json")
     assert "corridor_access_ratio" in data[0]["metrics"]
+    review_data = json.loads(pool_review_summary.read_text(encoding="utf-8"))
+    assert review_data["pool_summary"]["num_candidates"] == 2
+    assert len(review_data["candidate_summaries"]) == 2
+    assert "wall_adjacency_summary" in review_data["candidate_summaries"][0]
 
 
 def test_cli_evaluate_llm_writes_output(tmp_path, monkeypatch):

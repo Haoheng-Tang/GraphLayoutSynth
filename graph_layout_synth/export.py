@@ -134,6 +134,9 @@ def _ranking_report_json_row(candidate: dict) -> dict:
         "tie_break_keys": candidate["tie_break_keys"],
     }
     row.update(candidate.get("trace_metadata", {}))
+    review_summary_path = candidate.get("export_paths", {}).get("review_summary_path")
+    if review_summary_path is not None:
+        row["review_summary_path"] = review_summary_path
     return row
 
 
@@ -141,6 +144,7 @@ def _ranking_report_csv_row(candidate: dict) -> dict:
     metrics = candidate["metrics"]
     tie_break_keys = candidate["tie_break_keys"]
     trace_metadata = candidate.get("trace_metadata", {})
+    export_paths = candidate.get("export_paths", {})
     return {
         "rank": candidate["rank"],
         "candidate_id": candidate["candidate_id"],
@@ -177,4 +181,5 @@ def _ranking_report_csv_row(candidate: dict) -> dict:
         "trace_length": trace_metadata.get("trace_length", 0),
         "applied_rule_names": ";".join(trace_metadata.get("applied_rule_names", [])),
         "applied_rule_counts": json.dumps(trace_metadata.get("applied_rule_counts", {}), sort_keys=True),
+        "review_summary_path": export_paths.get("review_summary_path", ""),
     }

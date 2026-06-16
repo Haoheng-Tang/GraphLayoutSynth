@@ -1,11 +1,13 @@
 from random import Random
 
+import networkx as nx
 import pytest
 
 from graph_layout_synth.config import DEFAULT_CONFIG_PATH, load_config, validate_config
 from graph_layout_synth.generator import generate_candidate
 from graph_layout_synth.rule_schema import (
     RuleSchemaError,
+    apply_grammar_rule,
     load_grammar_rules,
     sample_choice,
     sample_count,
@@ -54,7 +56,48 @@ def test_generation_uses_config_defined_rules_without_final_zone_nodes():
     }
     assert "Zone" not in node_types
     assert "Corridor" in node_types
+    assert any(attrs.get("edge_type") == "wall" for _, _, attrs in result.graph.edges(data=True))
     assert result.is_valid
+
+
+def test_adjacent_pairs_edge_mode_connects_consecutive_created_nodes():
+    graph = nx.Graph()
+    graph.add_node("zone", type="Zone", is_abstract=True)
+    rule = {
+        "name": "make_rooms",
+        "match": {"type": "Zone"},
+        "action": {
+            "create_nodes": [
+                {
+                    "alias": "room",
+                    "type": "PatientRoom",
+                    "count": 3,
+                    "attributes": {"is_abstract": False},
+                }
+            ],
+            "create_edges": [
+                {
+                    "source": "room",
+                    "target": "room",
+                    "edge_type": "wall",
+                    "mode": "adjacent_pairs",
+                }
+            ],
+        },
+    }
+
+    created = apply_grammar_rule(graph, rule, "zone", Random(123))
+    wall_edges = {
+        tuple(sorted((left, right)))
+        for left, right, attrs in graph.edges(data=True)
+        if attrs.get("edge_type") == "wall"
+    }
+
+    assert created == ["zone_room_1", "zone_room_2", "zone_room_3"]
+    assert wall_edges == {
+        ("zone_room_1", "zone_room_2"),
+        ("zone_room_2", "zone_room_3"),
+    }
 
 
 def test_generation_with_config_rules_is_deterministic():

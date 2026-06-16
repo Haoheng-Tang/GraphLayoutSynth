@@ -112,6 +112,10 @@ grammar_rules:
           target: corridor
           edge_type: door
           mode: each_to_one
+        - source: room
+          target: room
+          edge_type: wall
+          mode: adjacent_pairs
 
 ranking:
   weights:

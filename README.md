@@ -18,9 +18,11 @@ Generated graphs are research prototypes. They are not geometric plans, construc
 ```text
 YAML configuration and grammar_rules
   -> stochastic NetworkX graph generation
+  -> rule-application tracing
   -> rule-based validation
   -> deterministic metric ranking
-  -> JSON/CSV reports and optional PNG visualization
+  -> candidate review summaries for human/RAG inspection
+  -> JSON/CSV reports, trace files, summaries, and optional PNG visualization
   -> optional Claude interpretation of deterministic reports
 ```
 
@@ -81,7 +83,7 @@ Supported features include:
 - stochastic min/max counts, such as `count: {min: 3, max: 5}`
 - stochastic choices, such as `type: {choices: [PatientRoom, ClinicalSupport]}`
 - created-node aliases for edge creation
-- edge modes: `one_to_one`, `each_to_one`, and `one_to_each`
+- edge modes: `one_to_one`, `each_to_one`, `one_to_each`, and `adjacent_pairs`
 - the special `matched` alias, plus `__neighbors__` for existing neighbors
 
 Example:
@@ -120,6 +122,10 @@ grammar_rules:
           target: corridor
           edge_type: door
           mode: each_to_one
+        - source: room
+          target: room
+          edge_type: wall
+          mode: adjacent_pairs
 ```
 
 The generator still contains older built-in expansion helpers, but config-defined grammar rules are used when present.
@@ -137,6 +143,23 @@ Trace artifacts are saved under `--output-dir` alongside graph and report files:
 - `top_<rank>_candidate_<n>_trace.json` and `.md` for each exported top-k candidate
 
 Candidate reports and ranking reports include compact trace metadata: `trace_path`, `trace_length`, `applied_rule_names`, and `applied_rule_counts`. Inspect the JSON trace for full step details or the markdown trace for a short human-readable summary.
+
+## Candidate Review Summaries
+
+The `generate` command also exports compact candidate review summaries for human inspection and later RAG-style graph review. These summaries are JSON files that avoid embedding full raw graphs by default while keeping pointers to retrievable artifacts such as graph JSON, candidate reports, traces, images, and the summary file itself.
+
+Each candidate summary includes validity status, final score, score breakdown when available, key deterministic metrics, node and edge counts, node and edge type counts, separate support-type counts and ratios such as `ClinicalSupport` and `StaffSupport`, graph degree statistics, trace metadata, artifact paths, and a wall-adjacency proxy.
+
+The wall-adjacency proxy counts incident `wall` edges for concrete room-like nodes. It is not a geometric corner-room or code-compliance metric. It is a graph-only signal for whether non-corridor rooms have low wall adjacency, because most room-like spaces in this prototype are expected to share walls with at least two neighboring spaces.
+
+The wall-adjacency summary includes aggregate counts and node references such as `low_wall_adjacency_nodes` and `isolated_wall_nodes`, each with `node_id`, `node_type`, `wall_degree`, and available attributes such as `zone`, so later RAG steps can retrieve the relevant graph fragments rather than only seeing pool-level counts.
+
+Review summary artifacts are saved under `--output-dir`:
+
+- `candidate_<n>_review_summary.json` for each generated candidate
+- `review_summary.json` with `pool_summary` and `candidate_summaries`
+
+Ranking report entries include `review_summary_path` so downstream review code can retrieve the compact candidate summary before deciding whether to load full graph, report, trace, or image artifacts.
 
 ## Generate Graphs
 
@@ -183,6 +206,10 @@ The older simple `score` in candidate reports is generation metadata. Use `final
 
 The `generate` command writes these files under `--output-dir`:
 
+- `candidate_<n>.json`: NetworkX node-link JSON for each generated candidate
+- `candidate_<n>_report.json`: validation, count, metric, score, trace, and review-summary metadata for each generated candidate
+- `candidate_<n>_review_summary.json`: compact structured review summary for each generated candidate
+- `review_summary.json`: pool-level and candidate-level review summaries
 - `best_candidate.json`: NetworkX node-link JSON for the top-ranked candidate
 - `best_candidate_report.json`: validation, count, metric, and score summary for the top candidate
 - `ranking_report.json`: full deterministic ranking report without embedded graph objects
@@ -192,7 +219,7 @@ The `generate` command writes these files under `--output-dir`:
 - `candidate_<n>_trace.json` and `candidate_<n>_trace.md`: rule-application trace for each generated candidate
 - `best_candidate_trace.json` and `best_candidate_trace.md`: trace aliases for the top-ranked candidate
 - `top_<rank>_candidate_<n>_trace.json` and `.md`: trace aliases for exported top-k candidates
-- `best_candidate.png` and `top_<rank>_candidate_<n>.png`: optional visualizations when `--visualize` is used
+- `candidate_<n>.png`, `best_candidate.png`, and `top_<rank>_candidate_<n>.png`: optional visualizations when `--visualize` is used
 
 Generated output artifacts are intentionally ignored by git, except `outputs/.gitkeep`.
 
@@ -246,7 +273,9 @@ Tests must not make live Anthropic API calls. LLM-related tests should mock or i
 - `graph_layout_synth/validators.py`: graph validity checks
 - `graph_layout_synth/scoring.py`: legacy/simple generation score
 - `graph_layout_synth/ranking.py`: deterministic candidate metrics, scoring, and ranking
+- `graph_layout_synth/review_summary.py`: compact candidate and pool review summaries for human/RAG inspection
 - `graph_layout_synth/export.py`: graph, candidate report, and ranking report export
 - `graph_layout_synth/visualize.py`: static PNG graph visualization
+- `graph_layout_synth/tracing.py`: rule-application trace event and trace export helpers
 - `graph_layout_synth/llm_evaluator.py`: optional Claude interpretation of deterministic reports
 - `graph_layout_synth/cli.py`: `generate` and `evaluate-llm` commands
