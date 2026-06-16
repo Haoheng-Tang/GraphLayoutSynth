@@ -17,9 +17,10 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
   - `python -m graph_layout_synth generate`
   - `python -m graph_layout_synth evaluate-llm`
 - Generation uses a seed graph and stochastic YAML `grammar_rules` when present.
-- Grammar rules support simple exact node-attribute matching, created-node aliases, fixed counts, min/max counts, choice sampling, matched-node updates, optional matched-node removal, and edge modes `one_to_one`, `each_to_one`, `one_to_each`.
+- Grammar rules support simple exact node-attribute matching, created-node aliases, fixed counts, min/max counts, choice sampling, matched-node updates, optional matched-node removal, and edge modes `one_to_one`, `each_to_one`, `one_to_each`, `adjacent_pairs`.
 - Rule-application tracing records applied rule order, matched nodes, sampled parameters, created nodes/edges, and removed nodes.
-- Outputs include candidate graph JSON, candidate reports, trace JSON/markdown, `ranking_report.json`, `ranking_report.csv`, and optional PNG visualizations.
+- Candidate review summaries provide compact human/RAG-oriented graph summaries with artifact pointers, separated support-type counts/ratios, and wall-adjacency proxy metrics with node references.
+- Outputs include candidate graph JSON, candidate reports, trace JSON/markdown, review summary JSON, `ranking_report.json`, `ranking_report.csv`, and optional PNG visualizations.
 - Optional Claude evaluation reads deterministic reports and writes markdown.
 
 ## Key Modules
@@ -32,6 +33,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - `validators.py`: checks connectivity, corridor access, edge types, and remaining abstract nodes.
 - `scoring.py`: legacy/simple generation score used as metadata.
 - `ranking.py`: deterministic metrics, `final_score`, `score_breakdown`, and tie-break ranking.
+- `review_summary.py`: compact candidate and pool review summaries, including degree and wall-adjacency proxy metrics.
 - `export.py`: node-link graph JSON, candidate reports, ranking JSON, and ranking CSV.
 - `visualize.py`: static Matplotlib PNG graph visualization.
 - `llm_evaluator.py`: optional Claude interpretation; never replaces deterministic ranking.
@@ -116,8 +118,13 @@ Typical generated files:
 - `best_candidate_trace.md`
 - `ranking_report.json`
 - `ranking_report.csv`
+- `review_summary.json`
+- `candidate_<n>.json`
+- `candidate_<n>_report.json`
 - `candidate_<n>_trace.json`
 - `candidate_<n>_trace.md`
+- `candidate_<n>_review_summary.json`
+- optional `candidate_<n>.png`
 - `top_<rank>_candidate_<n>.json`
 - `top_<rank>_candidate_<n>_report.json`
 - `top_<rank>_candidate_<n>_trace.json`
@@ -135,6 +142,9 @@ Typical generated files:
 - Do not implement geometry, OR-Tools, a web UI, deep learning, or product features unless explicitly requested.
 - Do not change generation, ranking, visualization, LLM evaluation, config behavior, or tests on documentation-only branches unless an obvious docs-related fix requires it.
 - Do not claim generated graphs are code-compliant or life-safety certified layouts.
+- Do not describe wall-adjacency summary fields as literal geometric corner-room or code-compliance metrics; they are graph-only proxies.
+- Keep `ClinicalSupport` and `StaffSupport` separate in review summaries. Do not collapse them into a generic support-room field for RAG review.
+- Wall-adjacency node references should include `node_id`, `node_type`, `wall_degree`, and available attributes such as `zone`.
 
 ## Coding Style
 

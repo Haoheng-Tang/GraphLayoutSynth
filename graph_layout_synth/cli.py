@@ -11,10 +11,16 @@ from graph_layout_synth.export import (
     export_ranking_report_csv,
     export_ranking_report_json,
     export_report_json,
+    graph_report_data,
 )
 from graph_layout_synth.generator import generate_candidates
 from graph_layout_synth.llm_evaluator import LlmEvaluationError, evaluate_candidates_with_llm
 from graph_layout_synth.ranking import rank_candidates
+from graph_layout_synth.review_summary import (
+    build_candidate_pool_summary,
+    build_candidate_review_summary,
+    export_review_summary_json,
+)
 from graph_layout_synth.tracing import export_trace_json, export_trace_summary, trace_metadata
 from graph_layout_synth.visualize import visualize_graph
 
@@ -63,12 +69,22 @@ def run_generate(args: argparse.Namespace) -> None:
 
     results = generate_candidates(num_candidates, seed, config, trace=True)
     candidate_trace_metadata = []
+    candidate_artifact_paths = []
     for index, result in enumerate(results, start=1):
         trace_path = args.output_dir / f"candidate_{index}_trace.json"
         trace_summary_path = args.output_dir / f"candidate_{index}_trace.md"
         export_trace_json(result.trace, trace_path)
         export_trace_summary(result.trace, trace_summary_path)
         candidate_trace_metadata.append(trace_metadata(result.trace, trace_path))
+        candidate_artifact_paths.append(
+            {
+                "graph_path": str(args.output_dir / f"candidate_{index}.json"),
+                "report_path": str(args.output_dir / f"candidate_{index}_report.json"),
+                "trace_path": str(trace_path),
+                "image_path": str(args.output_dir / f"candidate_{index}.png") if args.visualize else None,
+                "review_summary_path": str(args.output_dir / f"candidate_{index}_review_summary.json"),
+            }
+        )
 
     candidate_records = [
         {
@@ -76,10 +92,67 @@ def run_generate(args: argparse.Namespace) -> None:
             "graph": result.graph,
             "validation_report": None,
             "trace_metadata": candidate_trace_metadata[index - 1],
+            "export_paths": candidate_artifact_paths[index - 1],
         }
         for index, result in enumerate(results, start=1)
     ]
     ranked = rank_candidates(candidate_records, weights=config.ranking)
+    ranked_by_id = {item["candidate_id"]: item for item in ranked}
+    candidate_summaries = []
+    for index, result in enumerate(results, start=1):
+        candidate_id = f"candidate_{index}"
+        ranking_entry = ranked_by_id[candidate_id]
+        artifacts = candidate_artifact_paths[index - 1]
+        report_metadata = {
+            **candidate_trace_metadata[index - 1],
+            "review_summary_path": artifacts["review_summary_path"],
+        }
+        export_graph_json(result.graph, artifacts["graph_path"])
+        candidate_report = graph_report_data(
+            result.graph,
+            result.score,
+            bool(ranking_entry["metrics"]["validation_passed"]),
+            result.validation_errors,
+            metrics=ranking_entry["metrics"],
+            final_score=ranking_entry["final_score"],
+            score_breakdown=ranking_entry["score_breakdown"],
+            trace_metadata=report_metadata,
+        )
+        export_report_json(
+            result.graph,
+            artifacts["report_path"],
+            result.score,
+            bool(ranking_entry["metrics"]["validation_passed"]),
+            result.validation_errors,
+            metrics=ranking_entry["metrics"],
+            final_score=ranking_entry["final_score"],
+            score_breakdown=ranking_entry["score_breakdown"],
+            trace_metadata=report_metadata,
+        )
+        if args.visualize:
+            visualize_graph(
+                result.graph,
+                artifacts["image_path"],
+                title=f"{candidate_id}: score {ranking_entry['final_score']:.1f}",
+                config=config,
+            )
+        candidate_summary = build_candidate_review_summary(
+            candidate_id,
+            result.graph,
+            candidate_report=candidate_report,
+            ranking_entry=ranking_entry,
+            artifact_paths=artifacts,
+        )
+        export_review_summary_json(candidate_summary, artifacts["review_summary_path"])
+        candidate_summaries.append(candidate_summary)
+
+    export_review_summary_json(
+        {
+            "pool_summary": build_candidate_pool_summary(candidate_summaries),
+            "candidate_summaries": candidate_summaries,
+        },
+        args.output_dir / "review_summary.json",
+    )
     top_k = ranked[: min(args.top_k, len(ranked))]
     best = ranked[0]
     best_result = results[int(best["candidate_id"].split("_")[-1]) - 1]
@@ -100,7 +173,10 @@ def run_generate(args: argparse.Namespace) -> None:
         metrics=best["metrics"],
         final_score=best["final_score"],
         score_breakdown=best["score_breakdown"],
-        trace_metadata=best_trace_metadata,
+        trace_metadata={
+            **best_trace_metadata,
+            "review_summary_path": best["export_paths"].get("review_summary_path"),
+        },
     )
     export_ranking_report_json(ranked, args.output_dir / "ranking_report.json")
     export_ranking_report_csv(ranked, args.output_dir / "ranking_report.csv")
@@ -126,7 +202,10 @@ def run_generate(args: argparse.Namespace) -> None:
             metrics=item["metrics"],
             final_score=item["final_score"],
             score_breakdown=item["score_breakdown"],
-            trace_metadata=top_trace_metadata,
+            trace_metadata={
+                **top_trace_metadata,
+                "review_summary_path": item["export_paths"].get("review_summary_path"),
+            },
         )
 
     if args.visualize:

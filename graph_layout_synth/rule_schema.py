@@ -82,7 +82,7 @@ def validate_grammar_rule(rule: dict) -> None:
         ):
             raise RuleSchemaError(f"Grammar rule '{rule['name']}' has invalid create_edges entry.")
         mode = entry.get("mode", "one_to_one")
-        if mode not in {"one_to_one", "each_to_one", "one_to_each"}:
+        if mode not in {"one_to_one", "each_to_one", "one_to_each", "adjacent_pairs"}:
             raise RuleSchemaError(f"Grammar rule '{rule['name']}' has invalid create_edges mode '{mode}'.")
 
 
@@ -220,6 +220,14 @@ def _resolve_alias(name: str, alias_nodes: dict[str, list[str]], neighbors: list
 def _create_edges(graph: nx.Graph, sources: list[str], targets: list[str], mode: str, edge_type: str) -> list[dict[str, str]]:
     created_edges = []
     if not sources or not targets:
+        return created_edges
+    if mode == "adjacent_pairs":
+        nodes = sources if sources == targets else sources + targets
+        for source, target in zip(nodes, nodes[1:]):
+            if source == target:
+                continue
+            graph.add_edge(source, target, edge_type=edge_type)
+            created_edges.append({"source": source, "target": target, "edge_type": edge_type})
         return created_edges
     if mode == "each_to_one":
         for source in sources:
