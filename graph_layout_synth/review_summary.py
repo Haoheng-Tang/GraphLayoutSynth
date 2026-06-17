@@ -302,6 +302,10 @@ def build_candidate_review_summary(
             for key in (
                 "corridor_access_ratio",
                 "dead_end_count",
+                "edge_node_ratio",
+                "room_corridor_ratio",
+                "door_wall_ratio",
+                "corridor_fraction",
                 "abstract_node_count",
                 "invalid_edge_type_count",
             )

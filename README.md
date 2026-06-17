@@ -22,6 +22,7 @@ YAML configuration and grammar_rules
   -> rule-based validation
   -> deterministic metric ranking
   -> candidate review summaries for human/RAG inspection
+  -> diversity and novelty metrics over review-summary features
   -> JSON/CSV reports, trace files, summaries, and optional PNG visualization
   -> optional Claude interpretation of deterministic reports
 ```
@@ -163,6 +164,23 @@ Review summary artifacts are saved under `--output-dir`:
 
 Ranking report entries include `review_summary_path` so downstream review code can retrieve the compact candidate summary before deciding whether to load full graph, report, trace, or image artifacts.
 
+## Diversity and Novelty Metrics
+
+The `generate` command writes `diversity_report.json` with lightweight diversity and novelty diagnostics. These metrics are review context only; they do not change deterministic ranking, top-k export, or final candidate selection.
+
+Diversity is measured within the current generated candidate batch. Novelty is measured against an optional archive of previously selected final outputs. Both use numeric feature vectors extracted from candidate review summaries rather than raw graph edit distance.
+
+Feature extraction includes graph and report features such as node and edge counts, type counts, degree histograms, trace rule counts, wall-adjacency proxy metrics, and typed accessibility features. For typed accessibility, the current default feature source is the `PatientRoom` to nearest `ClinicalSupport` door-distance histogram and scalar distance fields when present.
+
+The optional archive path can be passed with `--archive-path`. If omitted, generation looks for `final_output_archive.json` under `--output-dir`; if the file does not exist, novelty is computed as if the archive were empty. This branch computes novelty metrics only and does not update the archive automatically.
+
+Feature-bin coverage reports both global and sample-normalized coverage. `coverage_rate` is occupied bins divided by all possible bins in the configured behavior space. `sample_normalized_coverage_rate` is occupied bins divided by the maximum number of bins this generated sample could have occupied, `min(num_candidates, total_possible_bin_count)`. For small batches, `sample_normalized_coverage_rate` is usually the more interpretable value.
+
+Generation also accepts:
+
+- `--near-duplicate-threshold`: distance threshold for within-batch near-duplicate detection, default `0.05`
+- `--low-novelty-threshold`: novelty-score threshold for archive comparison, default `0.10`
+
 ## Generate Graphs
 
 Generate ranked candidates:
@@ -173,6 +191,8 @@ python -m graph_layout_synth generate \
   --num-candidates 5 \
   --top-k 2 \
   --seed 42 \
+  --near-duplicate-threshold 0.05 \
+  --low-novelty-threshold 0.10 \
   --output-dir outputs
 ```
 
@@ -212,6 +232,7 @@ The `generate` command writes these files under `--output-dir`:
 - `candidate_<n>_report.json`: validation, count, metric, score, trace, and review-summary metadata for each generated candidate
 - `candidate_<n>_review_summary.json`: compact structured review summary for each generated candidate
 - `review_summary.json`: pool-level and candidate-level review summaries
+- `diversity_report.json`: diversity, novelty, and feature-bin coverage metrics
 - `best_candidate.json`: NetworkX node-link JSON for the top-ranked candidate
 - `best_candidate_report.json`: validation, count, metric, and score summary for the top candidate
 - `ranking_report.json`: full deterministic ranking report without embedded graph objects
@@ -276,6 +297,7 @@ Tests must not make live Anthropic API calls. LLM-related tests should mock or i
 - `graph_layout_synth/scoring.py`: legacy/simple generation score
 - `graph_layout_synth/ranking.py`: deterministic candidate metrics, scoring, and ranking
 - `graph_layout_synth/review_summary.py`: compact candidate and pool review summaries for human/RAG inspection
+- `graph_layout_synth/diversity.py`: diversity feature extraction, pairwise diversity, archive novelty, and feature-bin coverage
 - `graph_layout_synth/export.py`: graph, candidate report, and ranking report export
 - `graph_layout_synth/visualize.py`: static PNG graph visualization
 - `graph_layout_synth/tracing.py`: rule-application trace event and trace export helpers
