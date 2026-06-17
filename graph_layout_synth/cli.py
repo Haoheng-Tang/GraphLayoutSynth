@@ -6,6 +6,13 @@ import argparse
 from pathlib import Path
 
 from graph_layout_synth.config import DEFAULT_CONFIG_PATH, load_config
+from graph_layout_synth.diversity import (
+    DEFAULT_LOW_NOVELTY_THRESHOLD,
+    DEFAULT_NEAR_DUPLICATE_THRESHOLD,
+    build_diversity_report,
+    export_diversity_report_json,
+    load_final_output_archive,
+)
 from graph_layout_synth.export import (
     export_graph_json,
     export_ranking_report_csv,
@@ -36,6 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--top-k", type=int, default=1)
     generate.add_argument("--seed", type=int, default=None)
     generate.add_argument("--output-dir", type=Path, default=Path("outputs"))
+    generate.add_argument("--archive-path", type=Path, default=None)
+    generate.add_argument("--near-duplicate-threshold", type=float, default=DEFAULT_NEAR_DUPLICATE_THRESHOLD)
+    generate.add_argument("--low-novelty-threshold", type=float, default=DEFAULT_LOW_NOVELTY_THRESHOLD)
     generate.add_argument(
         "--visualize",
         action="store_true",
@@ -153,6 +163,17 @@ def run_generate(args: argparse.Namespace) -> None:
         },
         args.output_dir / "review_summary.json",
     )
+    archive_path = args.archive_path or args.output_dir / "final_output_archive.json"
+    archive = load_final_output_archive(archive_path)
+    diversity_report = build_diversity_report(
+        candidate_summaries,
+        archive=archive,
+        near_duplicate_threshold=args.near_duplicate_threshold,
+        low_novelty_threshold=args.low_novelty_threshold,
+    )
+    diversity_report["archive_path"] = str(archive_path)
+    diversity_report["archive_used"] = archive_path.exists()
+    export_diversity_report_json(diversity_report, args.output_dir / "diversity_report.json")
     top_k = ranked[: min(args.top_k, len(ranked))]
     best = ranked[0]
     best_result = results[int(best["candidate_id"].split("_")[-1]) - 1]
