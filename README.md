@@ -148,11 +148,13 @@ Candidate reports and ranking reports include compact trace metadata: `trace_pat
 
 The `generate` command also exports compact candidate review summaries for human inspection and later RAG-style graph review. These summaries are JSON files that avoid embedding full raw graphs by default while keeping pointers to retrievable artifacts such as graph JSON, candidate reports, traces, images, and the summary file itself.
 
-Each candidate summary includes validity status, final score, score breakdown when available, key deterministic metrics, node and edge counts, node and edge type counts, separate support-type counts and ratios such as `ClinicalSupport` and `StaffSupport`, graph degree statistics, trace metadata, artifact paths, and a wall-adjacency proxy.
+Each candidate summary includes validity status, final score, score breakdown when available, key deterministic metrics, node and edge counts, node and edge type counts, separate support-type counts and ratios such as `ClinicalSupport` and `StaffSupport`, graph degree statistics, typed accessibility metrics, trace metadata, artifact paths, and a wall-adjacency proxy.
 
 The wall-adjacency proxy counts incident `wall` edges for concrete room-like nodes. It is not a geometric corner-room or code-compliance metric. It is a graph-only signal for whether non-corridor rooms have low wall adjacency, because most room-like spaces in this prototype are expected to share walls with at least two neighboring spaces.
 
 The wall-adjacency summary includes aggregate counts and node references such as `low_wall_adjacency_nodes` and `isolated_wall_nodes`, each with `node_id`, `node_type`, `wall_degree`, and available attributes such as `zone`, so later RAG steps can retrieve the relevant graph fragments rather than only seeing pool-level counts.
+
+Typed accessibility metrics summarize shortest-path travel distances between source and target node types using door edges by default. The initial default pair is `PatientRoom` to nearest `ClinicalSupport`. Each pair summary includes reachable and unreachable source counts, min/mean/median/max distances, a distance histogram, and `far_source_nodes` with `node_id`, `node_type`, `nearest_target_id`, and `distance`. These metrics are review context only and are not used for scoring.
 
 Review summary artifacts are saved under `--output-dir`:
 

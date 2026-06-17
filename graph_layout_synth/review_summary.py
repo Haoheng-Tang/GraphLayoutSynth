@@ -12,6 +12,7 @@ import networkx as nx
 
 
 ROOM_LIKE_EXCLUDED_TYPES = {"BuildingFloor", "Corridor", "Zone"}
+DEFAULT_TYPED_ACCESSIBILITY_PAIRS = (("PatientRoom", "ClinicalSupport"),)
 
 
 def _sorted_counts(counter: Counter) -> dict[str, int]:
@@ -115,6 +116,122 @@ def support_type_summary(graph: nx.Graph) -> dict[str, Any]:
     }
 
 
+def _nodes_of_type(graph: nx.Graph, node_type: str) -> list[str]:
+    return [
+        node
+        for node, attrs in graph.nodes(data=True)
+        if attrs.get("type") == node_type
+        and not attrs.get("is_abstract", False)
+    ]
+
+
+def _travel_graph(graph: nx.Graph, edge_type: str | None) -> nx.Graph:
+    if edge_type is None:
+        return graph
+    travel_graph = nx.Graph()
+    travel_graph.add_nodes_from(graph.nodes(data=True))
+    travel_graph.add_edges_from(
+        (left, right, attrs)
+        for left, right, attrs in graph.edges(data=True)
+        if attrs.get("edge_type") == edge_type
+    )
+    return travel_graph
+
+
+def _empty_accessibility_pair_summary(source_type: str, target_type: str, source_count: int, target_count: int) -> dict[str, Any]:
+    return {
+        "source_type": source_type,
+        "target_type": target_type,
+        "source_count": source_count,
+        "target_count": target_count,
+        "reachable_count": 0,
+        "unreachable_count": source_count,
+        "distance_min": None,
+        "distance_mean": None,
+        "distance_median": None,
+        "distance_max": None,
+        "distance_histogram": {},
+        "far_source_nodes": [],
+    }
+
+
+def typed_accessibility_summary(
+    graph: nx.Graph,
+    type_pairs: list[tuple[str, str]] | None = None,
+    edge_type: str | None = "door",
+) -> dict[str, Any]:
+    """Summarize nearest-target travel distances between typed node pairs."""
+    type_pairs = type_pairs or list(DEFAULT_TYPED_ACCESSIBILITY_PAIRS)
+    travel_graph = _travel_graph(graph, edge_type)
+    pair_summaries = []
+
+    for source_type, target_type in type_pairs:
+        source_nodes = _nodes_of_type(graph, source_type)
+        target_nodes = _nodes_of_type(graph, target_type)
+        if not source_nodes or not target_nodes:
+            pair_summaries.append(
+                _empty_accessibility_pair_summary(
+                    source_type,
+                    target_type,
+                    len(source_nodes),
+                    len(target_nodes),
+                )
+            )
+            continue
+
+        reachable = []
+        unreachable_count = 0
+        for source in source_nodes:
+            distances = []
+            for target in target_nodes:
+                try:
+                    distances.append((nx.shortest_path_length(travel_graph, source, target), target))
+                except nx.NetworkXNoPath:
+                    continue
+            if not distances:
+                unreachable_count += 1
+                continue
+            distance, nearest_target = min(distances, key=lambda item: (item[0], str(item[1])))
+            reachable.append(
+                {
+                    "node_id": str(source),
+                    "node_type": source_type,
+                    "nearest_target_id": str(nearest_target),
+                    "distance": distance,
+                }
+            )
+
+        distance_values = [entry["distance"] for entry in reachable]
+        max_distance = max(distance_values) if distance_values else None
+        far_source_nodes = [
+            entry
+            for entry in reachable
+            if entry["distance"] == max_distance
+        ]
+        far_source_nodes.sort(key=lambda item: (str(item["node_id"]), str(item["nearest_target_id"])))
+        pair_summaries.append(
+            {
+                "source_type": source_type,
+                "target_type": target_type,
+                "source_count": len(source_nodes),
+                "target_count": len(target_nodes),
+                "reachable_count": len(reachable),
+                "unreachable_count": unreachable_count,
+                "distance_min": min(distance_values) if distance_values else None,
+                "distance_mean": _mean(distance_values) if distance_values else None,
+                "distance_median": median(distance_values) if distance_values else None,
+                "distance_max": max_distance,
+                "distance_histogram": _histogram(distance_values),
+                "far_source_nodes": far_source_nodes,
+            }
+        )
+
+    return {
+        "edge_type": edge_type,
+        "pairs": pair_summaries,
+    }
+
+
 def _validity_status(candidate_report: dict | None, ranking_entry: dict | None) -> dict[str, Any]:
     if candidate_report is not None:
         return {
@@ -166,6 +283,7 @@ def build_candidate_review_summary(
     graph_degree_summary = degree_summary(graph)
     wall_summary = wall_adjacency_summary(graph)
     support_summary = support_type_summary(graph)
+    accessibility_summary = typed_accessibility_summary(graph)
 
     return {
         "candidate_id": candidate_id,
@@ -200,6 +318,7 @@ def build_candidate_review_summary(
         "support_type_counts": support_summary["support_type_counts"],
         "support_type_ratios": support_summary["support_type_ratios"],
         "wall_adjacency_summary": wall_summary,
+        "typed_accessibility_summary": accessibility_summary,
         "trace_metadata": _trace_metadata(candidate_report, ranking_entry),
         "artifact_paths": {
             "graph_path": artifact_paths.get("graph_path"),
