@@ -6,6 +6,7 @@ from graph_layout_synth.review_summary import (
     build_candidate_pool_summary,
     build_candidate_review_summary,
     export_review_summary_json,
+    typed_accessibility_summary,
     wall_adjacency_summary,
 )
 
@@ -57,6 +58,7 @@ def test_review_summary_is_json_serializable_and_counts_types():
     assert "support_room_ratio" not in summary
     assert "support_room_count" not in summary["key_metrics"]
     assert "support_room_ratio" not in summary["key_metrics"]
+    assert "typed_accessibility_summary" in summary
 
 
 def test_degree_summary_and_histogram_for_known_graph():
@@ -104,6 +106,88 @@ def test_wall_adjacency_summary_handles_zero_counted_rooms():
     assert summary["low_wall_adjacency_nodes"] == []
     assert summary["low_wall_adjacency_room_ratio"] == 0.0
     assert summary["interior_wall_adjacency_ratio"] == 0.0
+
+
+def test_typed_accessibility_summary_uses_door_edges_by_default():
+    graph = nx.Graph()
+    graph.add_node("room_near", type="PatientRoom", is_abstract=False)
+    graph.add_node("room_far", type="PatientRoom", is_abstract=False)
+    graph.add_node("clinical", type="ClinicalSupport", is_abstract=False)
+    graph.add_node("corridor_a", type="Corridor", is_abstract=False)
+    graph.add_node("corridor_b", type="Corridor", is_abstract=False)
+    graph.add_edge("room_near", "clinical", edge_type="wall")
+    graph.add_edge("room_near", "corridor_a", edge_type="door")
+    graph.add_edge("clinical", "corridor_a", edge_type="door")
+    graph.add_edge("room_far", "corridor_b", edge_type="door")
+    graph.add_edge("corridor_b", "corridor_a", edge_type="door")
+
+    summary = typed_accessibility_summary(graph)
+    pair = summary["pairs"][0]
+
+    assert summary["edge_type"] == "door"
+    assert pair["source_type"] == "PatientRoom"
+    assert pair["target_type"] == "ClinicalSupport"
+    assert pair["source_count"] == 2
+    assert pair["target_count"] == 1
+    assert pair["reachable_count"] == 2
+    assert pair["unreachable_count"] == 0
+    assert pair["distance_min"] == 2
+    assert pair["distance_mean"] == 2.5
+    assert pair["distance_median"] == 2.5
+    assert pair["distance_max"] == 3
+    assert pair["distance_histogram"] == {"2": 1, "3": 1}
+    assert pair["far_source_nodes"] == [
+        {
+            "node_id": "room_far",
+            "node_type": "PatientRoom",
+            "nearest_target_id": "clinical",
+            "distance": 3,
+        }
+    ]
+
+
+def test_typed_accessibility_summary_handles_absent_types_safely():
+    graph = nx.Graph()
+    graph.add_node("room", type="PatientRoom", is_abstract=False)
+
+    summary = typed_accessibility_summary(graph)
+    pair = summary["pairs"][0]
+
+    assert pair["source_count"] == 1
+    assert pair["target_count"] == 0
+    assert pair["reachable_count"] == 0
+    assert pair["unreachable_count"] == 1
+    assert pair["distance_min"] is None
+    assert pair["distance_mean"] is None
+    assert pair["distance_median"] is None
+    assert pair["distance_max"] is None
+    assert pair["distance_histogram"] == {}
+    assert pair["far_source_nodes"] == []
+
+
+def test_typed_accessibility_summary_counts_unreachable_sources():
+    graph = nx.Graph()
+    graph.add_node("room_a", type="PatientRoom", is_abstract=False)
+    graph.add_node("room_b", type="PatientRoom", is_abstract=False)
+    graph.add_node("clinical", type="ClinicalSupport", is_abstract=False)
+    graph.add_node("corridor", type="Corridor", is_abstract=False)
+    graph.add_edge("room_a", "corridor", edge_type="door")
+    graph.add_edge("clinical", "corridor", edge_type="door")
+
+    summary = typed_accessibility_summary(graph)
+    pair = summary["pairs"][0]
+
+    assert pair["reachable_count"] == 1
+    assert pair["unreachable_count"] == 1
+    assert pair["distance_histogram"] == {"2": 1}
+    assert pair["far_source_nodes"] == [
+        {
+            "node_id": "room_a",
+            "node_type": "PatientRoom",
+            "nearest_target_id": "clinical",
+            "distance": 2,
+        }
+    ]
 
 
 def test_pool_summary_computes_counts_and_score_range():

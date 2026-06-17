@@ -19,7 +19,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - Generation uses a seed graph and stochastic YAML `grammar_rules` when present.
 - Grammar rules support simple exact node-attribute matching, created-node aliases, fixed counts, min/max counts, choice sampling, matched-node updates, optional matched-node removal, and edge modes `one_to_one`, `each_to_one`, `one_to_each`, `adjacent_pairs`.
 - Rule-application tracing records applied rule order, matched nodes, sampled parameters, created nodes/edges, and removed nodes.
-- Candidate review summaries provide compact human/RAG-oriented graph summaries with artifact pointers, separated support-type counts/ratios, and wall-adjacency proxy metrics with node references.
+- Candidate review summaries provide compact human/RAG-oriented graph summaries with artifact pointers, separated support-type counts/ratios, wall-adjacency proxy metrics with node references, and typed accessibility summaries.
 - Outputs include candidate graph JSON, candidate reports, trace JSON/markdown, review summary JSON, `ranking_report.json`, `ranking_report.csv`, and optional PNG visualizations.
 - Optional Claude evaluation reads deterministic reports and writes markdown.
 
@@ -33,7 +33,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - `validators.py`: checks connectivity, corridor access, edge types, and remaining abstract nodes.
 - `scoring.py`: legacy/simple generation score used as metadata.
 - `ranking.py`: deterministic metrics, `final_score`, `score_breakdown`, and tie-break ranking.
-- `review_summary.py`: compact candidate and pool review summaries, including degree and wall-adjacency proxy metrics.
+- `review_summary.py`: compact candidate and pool review summaries, including degree, wall-adjacency proxy metrics, and typed accessibility summaries.
 - `export.py`: node-link graph JSON, candidate reports, ranking JSON, and ranking CSV.
 - `visualize.py`: static Matplotlib PNG graph visualization.
 - `llm_evaluator.py`: optional Claude interpretation; never replaces deterministic ranking.
@@ -145,6 +145,7 @@ Typical generated files:
 - Do not describe wall-adjacency summary fields as literal geometric corner-room or code-compliance metrics; they are graph-only proxies.
 - Keep `ClinicalSupport` and `StaffSupport` separate in review summaries. Do not collapse them into a generic support-room field for RAG review.
 - Wall-adjacency node references should include `node_id`, `node_type`, `wall_degree`, and available attributes such as `zone`.
+- Typed accessibility currently uses door-edge-only travel by default and includes `PatientRoom` to nearest `ClinicalSupport` as the default pair when present. Do not use it for scoring unless explicitly requested.
 
 ## Coding Style
 
