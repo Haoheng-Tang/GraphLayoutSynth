@@ -1,4 +1,5 @@
 import json
+import math
 
 from graph_layout_synth.cli import main
 from graph_layout_synth.diversity import (
@@ -145,6 +146,29 @@ def test_novelty_empty_archive_is_maximal_and_matching_archive_is_low():
     assert novelty["candidate_novelty"][0]["nearest_archive_distance"] == 0.0
     assert novelty["candidate_novelty"][0]["novelty_score"] == 0.0
     assert novelty["low_novelty_candidate_count"] == 1
+
+
+def test_novelty_score_is_bounded_normalized_distance_not_clipped_raw_distance():
+    summary = _summary("candidate_1")
+    features = extract_diversity_feature_vector(summary)
+    archive = {
+        "version": 1,
+        "outputs": [
+            {
+                "output_id": "final_001",
+                "graph_path": "outputs/final_001.json",
+                "feature_vector": {},
+            }
+        ],
+    }
+
+    novelty = compute_novelty_against_archive([summary], archive)
+    entry = novelty["candidate_novelty"][0]
+    expected_max_distance = round(math.sqrt(len(features)), 6)
+
+    assert entry["nearest_archive_distance"] > 1.0
+    assert 0.0 < entry["novelty_score"] < 1.0
+    assert entry["novelty_score"] == round(entry["nearest_archive_distance"] / expected_max_distance, 6)
 
 
 def test_feature_bin_coverage_handles_zero_candidates():
