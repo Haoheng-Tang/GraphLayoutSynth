@@ -15,13 +15,15 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - Config: YAML, default `configs/generic_building.yaml`
 - CLI commands:
   - `python -m graph_layout_synth generate`
+  - `python -m graph_layout_synth archive-final`
   - `python -m graph_layout_synth evaluate-llm`
 - Generation uses a seed graph and stochastic YAML `grammar_rules` when present.
 - Grammar rules support simple exact node-attribute matching, created-node aliases, fixed counts, min/max counts, choice sampling, matched-node updates, optional matched-node removal, and edge modes `one_to_one`, `each_to_one`, `one_to_each`, `adjacent_pairs`.
 - Rule-application tracing records applied rule order, matched nodes, sampled parameters, created nodes/edges, and removed nodes.
 - Candidate review summaries provide compact human/RAG-oriented graph summaries with artifact pointers, separated support-type counts/ratios, wall-adjacency proxy metrics with node references, and typed accessibility summaries.
 - Diversity and novelty metrics use feature vectors extracted from candidate review summaries, not raw graph edit distance, and do not alter deterministic ranking.
-- Outputs include candidate graph JSON, candidate reports, trace JSON/markdown, review summary JSON, `diversity_report.json`, `ranking_report.json`, `ranking_report.csv`, and optional PNG visualizations.
+- Final-output archiving is explicit and selection-file based; archive entries represent accepted final outputs, not all generated candidates.
+- Outputs include candidate graph JSON, candidate reports, trace JSON/markdown, review summary JSON, `diversity_report.json`, optional `final_output_archive.json`, `ranking_report.json`, `ranking_report.csv`, and optional PNG visualizations.
 - Optional Claude evaluation reads deterministic reports and writes markdown.
 
 ## Key Modules
@@ -36,6 +38,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - `ranking.py`: deterministic metrics, `final_score`, `score_breakdown`, and tie-break ranking.
 - `review_summary.py`: compact candidate and pool review summaries, including degree, wall-adjacency proxy metrics, and typed accessibility summaries.
 - `diversity.py`: diversity feature extraction, normalized pairwise distance, archive novelty, and feature-bin coverage metrics.
+- `archive.py`: explicit final-output archive utilities using LLM/manual selection files and candidate review summaries.
 - `export.py`: node-link graph JSON, candidate reports, ranking JSON, and ranking CSV.
 - `visualize.py`: static Matplotlib PNG graph visualization.
 - `llm_evaluator.py`: optional Claude interpretation; never replaces deterministic ranking.
@@ -122,6 +125,7 @@ Typical generated files:
 - `ranking_report.csv`
 - `review_summary.json`
 - `diversity_report.json`
+- optional `final_output_archive.json`
 - `candidate_<n>.json`
 - `candidate_<n>_report.json`
 - `candidate_<n>_trace.json`
@@ -150,7 +154,9 @@ Typical generated files:
 - Wall-adjacency node references should include `node_id`, `node_type`, `wall_degree`, and available attributes such as `zone`.
 - Typed accessibility currently uses door-edge-only travel by default and includes `PatientRoom` to nearest `ClinicalSupport` as the default pair when present. Do not use it for scoring unless explicitly requested.
 - Do not use diversity or novelty metrics to change final ranking/selection in this branch. They are exported diagnostics only.
-- Do not update the final-output archive automatically unless a future branch adds an explicit opt-in action.
+- Do not auto-archive generated, best, or top-k candidates. Archive entries represent accepted final outputs only.
+- Prefer the selection-file workflow for archiving. Direct `--review-summary` archiving is secondary for manual/test workflows.
+- Do not update the final-output archive automatically during `generate`; use `archive-final` with explicit selection input.
 
 ## Coding Style
 

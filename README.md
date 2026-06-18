@@ -174,12 +174,58 @@ Feature extraction includes graph and report features such as node and edge coun
 
 The optional archive path can be passed with `--archive-path`. If omitted, generation looks for `final_output_archive.json` under `--output-dir`; if the file does not exist, novelty is computed as if the archive were empty. This branch computes novelty metrics only and does not update the archive automatically.
 
+Archive novelty reports preserve `nearest_archive_distance` as the raw weighted Euclidean distance in normalized feature space. Because that raw distance spans many feature dimensions, it can exceed `1.0`. The exported `novelty_score` is bounded by normalizing that raw distance by the maximum possible weighted Euclidean distance for the active feature dimensions.
+
 Feature-bin coverage reports both global and sample-normalized coverage. `coverage_rate` is occupied bins divided by all possible bins in the configured behavior space. `sample_normalized_coverage_rate` is occupied bins divided by the maximum number of bins this generated sample could have occupied, `min(num_candidates, total_possible_bin_count)`. For small batches, `sample_normalized_coverage_rate` is usually the more interpretable value.
 
 Generation also accepts:
 
 - `--near-duplicate-threshold`: distance threshold for within-batch near-duplicate detection, default `0.05`
 - `--low-novelty-threshold`: novelty-score threshold for archive comparison, default `0.10`
+
+## Final Output Archive
+
+The final-output archive stores accepted final graph outputs selected by an explicit selection process, usually an LLM review step. It is used by later generation runs for novelty comparison. The archive is not a record of every generated or top-ranked candidate, and it is not updated automatically during generation.
+
+The preferred archive input is a machine-readable selection file:
+
+```json
+{
+  "selected_candidate_id": "candidate_3",
+  "selection_rationale": "Candidate 3 has strong validity, balanced graph metrics, and useful novelty.",
+  "selection_source": "claude",
+  "review_context_path": "outputs/llm_evaluation.md"
+}
+```
+
+Archive a selected final output with:
+
+```bash
+python -m graph_layout_synth archive-final \
+  --selection outputs/llm_selection.json \
+  --output-dir outputs \
+  --archive-path outputs/final_output_archive.json \
+  --output-id final_run_001
+```
+
+The minimal command is:
+
+```bash
+python -m graph_layout_synth archive-final \
+  --selection outputs/llm_selection.json \
+  --output-dir outputs
+```
+
+This resolves `selected_candidate_id` to `outputs/<candidate_id>_review_summary.json`, validates the candidate ID, extracts artifact paths, stores selection notes, and writes or updates `outputs/final_output_archive.json`. If `--output-id` is omitted, a timestamp-based id is generated. Duplicate `output_id` values are rejected unless `--allow-duplicate-output-id` is passed.
+
+Direct review-summary archiving is also available for manual or test workflows:
+
+```bash
+python -m graph_layout_synth archive-final \
+  --review-summary outputs/candidate_3_review_summary.json \
+  --notes "Manual final selection." \
+  --output-dir outputs
+```
 
 ## Generate Graphs
 
@@ -233,6 +279,7 @@ The `generate` command writes these files under `--output-dir`:
 - `candidate_<n>_review_summary.json`: compact structured review summary for each generated candidate
 - `review_summary.json`: pool-level and candidate-level review summaries
 - `diversity_report.json`: diversity, novelty, and feature-bin coverage metrics
+- `final_output_archive.json`: optional archive of accepted final outputs, created by `archive-final`
 - `best_candidate.json`: NetworkX node-link JSON for the top-ranked candidate
 - `best_candidate_report.json`: validation, count, metric, and score summary for the top candidate
 - `ranking_report.json`: full deterministic ranking report without embedded graph objects
@@ -298,8 +345,9 @@ Tests must not make live Anthropic API calls. LLM-related tests should mock or i
 - `graph_layout_synth/ranking.py`: deterministic candidate metrics, scoring, and ranking
 - `graph_layout_synth/review_summary.py`: compact candidate and pool review summaries for human/RAG inspection
 - `graph_layout_synth/diversity.py`: diversity feature extraction, pairwise diversity, archive novelty, and feature-bin coverage
+- `graph_layout_synth/archive.py`: explicit final-output archive creation from selection files or review summaries
 - `graph_layout_synth/export.py`: graph, candidate report, and ranking report export
 - `graph_layout_synth/visualize.py`: static PNG graph visualization
 - `graph_layout_synth/tracing.py`: rule-application trace event and trace export helpers
 - `graph_layout_synth/llm_evaluator.py`: optional Claude interpretation of deterministic reports
-- `graph_layout_synth/cli.py`: `generate` and `evaluate-llm` commands
+- `graph_layout_synth/cli.py`: `generate`, `archive-final`, and `evaluate-llm` commands

@@ -175,6 +175,19 @@ def _weighted_euclidean_distance(
     return round(math.sqrt(total), 6)
 
 
+def _max_weighted_euclidean_distance(
+    feature_keys: list[str],
+    feature_weights: dict[str, float] | None = None,
+) -> float:
+    """Return the maximum possible distance after per-feature min-max normalization."""
+    total = 0.0
+    for feature_key in feature_keys:
+        weight = _weight_for_key(feature_key, feature_weights)
+        if weight > 0:
+            total += weight
+    return round(math.sqrt(total), 6)
+
+
 def weighted_distance(
     a: dict[str, float],
     b: dict[str, float],
@@ -284,9 +297,10 @@ def _normalized_current_archive_distances(
     current_vectors: list[dict[str, float]],
     archive_vectors: list[dict[str, float]],
     feature_weights: dict[str, float] | None,
-) -> list[list[float]]:
+) -> tuple[list[list[float]], float]:
     feature_keys, matrix = build_feature_matrix(current_vectors + archive_vectors)
     normalized = minmax_normalize_matrix(matrix)
+    max_distance = _max_weighted_euclidean_distance(feature_keys, feature_weights)
     current_count = len(current_vectors)
     distances = []
     for current_index in range(current_count):
@@ -301,7 +315,7 @@ def _normalized_current_archive_distances(
                 )
             )
         distances.append(row)
-    return distances
+    return distances, max_distance
 
 
 def compute_novelty_against_archive(
@@ -326,7 +340,7 @@ def compute_novelty_against_archive(
             for summary in candidate_summaries
         ]
     else:
-        distances = _normalized_current_archive_distances(current_vectors, archive_vectors, feature_weights)
+        distances, max_distance = _normalized_current_archive_distances(current_vectors, archive_vectors, feature_weights)
         candidate_novelty = []
         for index, summary in enumerate(candidate_summaries):
             nearest_archive_index, nearest_distance = min(
@@ -334,7 +348,8 @@ def compute_novelty_against_archive(
                 key=lambda item: item[1],
             )
             nearest_output = archive_outputs[nearest_archive_index]
-            novelty_score = max(0.0, min(1.0, nearest_distance))
+            novelty_score = 0.0 if max_distance == 0.0 else nearest_distance / max_distance
+            novelty_score = max(0.0, min(1.0, novelty_score))
             candidate_novelty.append(
                 {
                     "candidate_id": summary.get("candidate_id"),

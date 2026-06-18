@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
+from graph_layout_synth.archive import (
+    ArchiveError,
+    add_final_output_to_archive,
+    build_archive_entry_from_selection,
+    load_final_output_archive,
+    load_selection_file,
+    resolve_review_summary_from_selection,
+)
 from graph_layout_synth.config import DEFAULT_CONFIG_PATH, load_config
 from graph_layout_synth.diversity import (
     DEFAULT_LOW_NOVELTY_THRESHOLD,
     DEFAULT_NEAR_DUPLICATE_THRESHOLD,
     build_diversity_report,
     export_diversity_report_json,
-    load_final_output_archive,
 )
 from graph_layout_synth.export import (
     export_graph_json,
@@ -62,6 +70,18 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_llm.add_argument("--model", default="claude-3-5-haiku-latest")
     evaluate_llm.add_argument("--env-path", default=".env.local")
     evaluate_llm.add_argument("--max-tokens", type=int, default=1200)
+
+    archive_final = subparsers.add_parser(
+        "archive-final",
+        help="Archive an explicitly selected final candidate.",
+    )
+    archive_final.add_argument("--selection", type=Path, default=None)
+    archive_final.add_argument("--output-dir", type=Path, default=Path("outputs"))
+    archive_final.add_argument("--archive-path", type=Path, default=None)
+    archive_final.add_argument("--output-id", default=None)
+    archive_final.add_argument("--allow-duplicate-output-id", action="store_true")
+    archive_final.add_argument("--review-summary", type=Path, default=None)
+    archive_final.add_argument("--notes", default=None)
 
     return parser
 
@@ -164,7 +184,10 @@ def run_generate(args: argparse.Namespace) -> None:
         args.output_dir / "review_summary.json",
     )
     archive_path = args.archive_path or args.output_dir / "final_output_archive.json"
-    archive = load_final_output_archive(archive_path)
+    try:
+        archive = load_final_output_archive(archive_path)
+    except ArchiveError as exc:
+        raise SystemExit(str(exc)) from exc
     diversity_report = build_diversity_report(
         candidate_summaries,
         archive=archive,
@@ -282,6 +305,44 @@ def run_evaluate_llm(args: argparse.Namespace) -> None:
     print(f"Model: {result['model']}.")
 
 
+def run_archive_final(args: argparse.Namespace) -> None:
+    """Archive an explicitly selected final candidate."""
+    archive_path = args.archive_path or args.output_dir / "final_output_archive.json"
+    try:
+        if args.selection:
+            selection = load_selection_file(args.selection)
+            review_summary_path, review_summary = resolve_review_summary_from_selection(selection, args.output_dir)
+            artifact_paths = review_summary.setdefault("artifact_paths", {})
+            artifact_paths.setdefault("review_summary_path", str(review_summary_path))
+        elif args.review_summary:
+            review_summary = json.loads(args.review_summary.read_text(encoding="utf-8"))
+            selection = {
+                "selected_candidate_id": review_summary.get("candidate_id"),
+                "selection_source": "manual",
+                "selection_rationale": args.notes,
+            }
+            if not selection["selected_candidate_id"]:
+                raise ArchiveError("Review summary is missing required field 'candidate_id'.")
+            artifact_paths = review_summary.setdefault("artifact_paths", {})
+            artifact_paths.setdefault("review_summary_path", str(args.review_summary))
+        else:
+            raise ArchiveError("Provide --selection or --review-summary.")
+
+        entry = build_archive_entry_from_selection(selection, review_summary, output_id=args.output_id)
+        archive = add_final_output_to_archive(
+            archive_path,
+            entry,
+            allow_duplicate_output_id=args.allow_duplicate_output_id,
+        )
+    except (ArchiveError, FileNotFoundError, json.JSONDecodeError) as exc:
+        raise SystemExit(str(exc)) from exc
+
+    print(f"Archived final output: {entry['output_id']}.")
+    print(f"Candidate: {entry['candidate_id']}.")
+    print(f"Archive: {archive_path}.")
+    print(f"Archive size: {len(archive.get('outputs', []))}.")
+
+
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -291,6 +352,8 @@ def main(argv: list[str] | None = None) -> None:
         run_generate(args)
     elif args.command == "evaluate-llm":
         run_evaluate_llm(args)
+    elif args.command == "archive-final":
+        run_archive_final(args)
 
 
 if __name__ == "__main__":
