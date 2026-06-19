@@ -14,13 +14,64 @@ class RuleSchemaError(ValueError):
     """Raised when a grammar rule is malformed or unsupported."""
 
 
-def sample_count(count_spec: Any, rng: Random) -> int:
-    """Sample a node count from a fixed integer or min/max mapping."""
+MATCH_KEYS = {"type", "zone", "zone_type", "is_abstract"}
+ACTION_KEYS = {"remove_matched_node", "update_matched_node_attributes", "create_nodes", "create_edges"}
+CREATE_NODE_KEYS = {"alias", "type", "count", "attributes"}
+CREATE_EDGE_KEYS = {"source", "target", "edge_type", "mode"}
+NODE_ATTRIBUTE_KEYS = {"type", "zone", "zone_type", "is_abstract"}
+EDGE_MODES = {"one_to_one", "each_to_one", "one_to_each", "adjacent_pairs"}
+SPECIAL_ALIASES = {"matched", "__neighbors__"}
+
+
+def _rule_label(rule: Any, index: int | None = None) -> str:
+    if isinstance(rule, dict) and rule.get("name"):
+        return f"grammar_rules[{index}] '{rule['name']}'" if index is not None else f"grammar rule '{rule['name']}'"
+    return f"grammar_rules[{index}]" if index is not None else "grammar rule"
+
+
+def _error(rule: Any, path: str, message: str, index: int | None = None) -> RuleSchemaError:
+    return RuleSchemaError(f"{_rule_label(rule, index)} at {path}: {message}")
+
+
+def _unknown_keys(value: dict[str, Any], allowed: set[str]) -> list[str]:
+    return sorted(key for key in value if key not in allowed)
+
+
+def _validate_choice_spec(
+    value: Any,
+    path: str,
+    rule: dict,
+    index: int | None,
+    allowed_values: list[str] | None = None,
+) -> None:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, dict):
+        unknown = _unknown_keys(value, {"choices"})
+        if unknown:
+            raise _error(rule, path, f"unsupported choice field(s): {', '.join(unknown)}.", index)
+        choices = value.get("choices")
+        if not isinstance(choices, list) or not choices or not all(isinstance(item, str) and item for item in choices):
+            raise _error(rule, path, "choice spec must contain a non-empty list of strings.", index)
+        values = choices
+    else:
+        raise _error(rule, path, "must be a string or {'choices': [...]} object.", index)
+
+    if allowed_values is not None:
+        unknown_values = sorted(set(values) - set(allowed_values))
+        if unknown_values:
+            raise _error(rule, path, f"unknown value(s): {', '.join(unknown_values)}.", index)
+
+
+def _validate_count_spec(count_spec: Any, rule: dict, path: str, index: int | None = None) -> None:
     if isinstance(count_spec, int) and not isinstance(count_spec, bool):
-        if count_spec < 0:
-            raise RuleSchemaError("Count must be non-negative.")
-        return count_spec
+        if count_spec < 1:
+            raise _error(rule, path, "count must be a positive integer.", index)
+        return
     if isinstance(count_spec, dict):
+        unknown = _unknown_keys(count_spec, {"min", "max"})
+        if unknown:
+            raise _error(rule, path, f"unsupported count field(s): {', '.join(unknown)}.", index)
         minimum = count_spec.get("min")
         maximum = count_spec.get("max")
         if (
@@ -28,10 +79,45 @@ def sample_count(count_spec: Any, rng: Random) -> int:
             or isinstance(minimum, bool)
             or not isinstance(maximum, int)
             or isinstance(maximum, bool)
-            or minimum < 0
+        ):
+            raise _error(rule, path, "count min and max must be integers.", index)
+        if minimum < 1 or maximum < 1:
+            raise _error(rule, path, "count min and max must be positive integers.", index)
+        if minimum > maximum:
+            raise _error(rule, path, "count min must be less than or equal to max.", index)
+        return
+    raise _error(rule, path, "unknown count format: expected integer or {'min': int, 'max': int}.", index)
+
+
+def _validate_node_attributes(attributes: Any, rule: dict, path: str, index: int | None = None) -> None:
+    if not isinstance(attributes, dict):
+        raise _error(rule, path, "must be a mapping.", index)
+    unknown = _unknown_keys(attributes, NODE_ATTRIBUTE_KEYS)
+    if unknown:
+        raise _error(rule, path, f"unsupported node attribute(s): {', '.join(unknown)}.", index)
+
+
+def sample_count(count_spec: Any, rng: Random) -> int:
+    """Sample a node count from a fixed integer or min/max mapping."""
+    if isinstance(count_spec, int) and not isinstance(count_spec, bool):
+        if count_spec < 1:
+            raise RuleSchemaError("Count must be a positive integer.")
+        return count_spec
+    if isinstance(count_spec, dict):
+        if set(count_spec) != {"min", "max"}:
+            raise RuleSchemaError("Unknown count format: expected {'min': int, 'max': int}.")
+        minimum = count_spec.get("min")
+        maximum = count_spec.get("max")
+        if (
+            not isinstance(minimum, int)
+            or isinstance(minimum, bool)
+            or not isinstance(maximum, int)
+            or isinstance(maximum, bool)
+            or minimum < 1
+            or maximum < 1
             or maximum < minimum
         ):
-            raise RuleSchemaError("Unknown count format: expected {'min': int, 'max': int}.")
+            raise RuleSchemaError("Count bounds must be positive integers with min <= max.")
         return rng.randint(minimum, maximum)
     raise RuleSchemaError("Unknown count format: expected integer or {'min': int, 'max': int}.")
 
@@ -46,44 +132,103 @@ def sample_choice(choice_spec: Any, rng: Random) -> Any:
     return choice_spec
 
 
-def validate_grammar_rule(rule: dict) -> None:
+def validate_grammar_rule(
+    rule: dict,
+    *,
+    allowed_node_types: list[str] | None = None,
+    allowed_edge_types: list[str] | None = None,
+    index: int | None = None,
+) -> None:
     """Validate one minimal grammar rule."""
     if not isinstance(rule, dict):
-        raise RuleSchemaError("Grammar rule must be a mapping.")
-    if not rule.get("name"):
-        raise RuleSchemaError("Grammar rule is missing rule name.")
+        raise RuleSchemaError(f"{_rule_label(rule, index)}: must be a mapping.")
+    name = rule.get("name")
+    if not isinstance(name, str) or not name:
+        raise _error(rule, "name", "missing rule name.", index)
+    unknown_rule_keys = _unknown_keys(rule, {"name", "match", "action"})
+    if unknown_rule_keys:
+        raise _error(rule, ".", f"unsupported rule field(s): {', '.join(unknown_rule_keys)}.", index)
+
     match = rule.get("match")
     if not isinstance(match, dict) or not match:
-        raise RuleSchemaError(f"Grammar rule '{rule['name']}' is missing match section.")
+        raise _error(rule, "match", "missing match section.", index)
+    unknown_match_keys = _unknown_keys(match, MATCH_KEYS)
+    if unknown_match_keys:
+        raise _error(rule, "match", f"unsupported match key(s): {', '.join(unknown_match_keys)}.", index)
+    if "type" in match:
+        if not isinstance(match["type"], str) or not match["type"]:
+            raise _error(rule, "match.type", "must be a non-empty string.", index)
+        if allowed_node_types is not None and match["type"] not in allowed_node_types:
+            raise _error(rule, "match.type", f"unknown node type '{match['type']}'.", index)
+    if "is_abstract" in match and not isinstance(match["is_abstract"], bool):
+        raise _error(rule, "match.is_abstract", "must be true or false.", index)
+    for string_key in ("zone", "zone_type"):
+        if string_key in match and not isinstance(match[string_key], str):
+            raise _error(rule, f"match.{string_key}", "must be a string.", index)
+
     action = rule.get("action")
     if not isinstance(action, dict):
-        raise RuleSchemaError(f"Grammar rule '{rule['name']}' is missing action section.")
+        raise _error(rule, "action", "missing action section.", index)
+    unknown_action_keys = _unknown_keys(action, ACTION_KEYS)
+    if unknown_action_keys:
+        raise _error(rule, "action", f"unsupported action field(s): {', '.join(unknown_action_keys)}.", index)
+
+    if "remove_matched_node" in action and not isinstance(action["remove_matched_node"], bool):
+        raise _error(rule, "action.remove_matched_node", "must be true or false.", index)
+    if "update_matched_node_attributes" in action:
+        _validate_node_attributes(action["update_matched_node_attributes"], rule, "action.update_matched_node_attributes", index)
 
     create_nodes = action.get("create_nodes", [])
     if not isinstance(create_nodes, list):
-        raise RuleSchemaError(f"Grammar rule '{rule['name']}' has invalid create_nodes section.")
-    for entry in create_nodes:
-        if not isinstance(entry, dict) or not entry.get("alias") or "type" not in entry:
-            raise RuleSchemaError(f"Grammar rule '{rule['name']}' has invalid create_nodes entry.")
-        sample_count(entry.get("count", 1), Random(0))
+        raise _error(rule, "action.create_nodes", "must be a list.", index)
+    aliases: set[str] = set()
+    for node_index, entry in enumerate(create_nodes):
+        node_path = f"action.create_nodes[{node_index}]"
+        if not isinstance(entry, dict):
+            raise _error(rule, node_path, "must be a mapping.", index)
+        unknown_node_keys = _unknown_keys(entry, CREATE_NODE_KEYS)
+        if unknown_node_keys:
+            raise _error(rule, node_path, f"unsupported create_nodes field(s): {', '.join(unknown_node_keys)}.", index)
+        alias = entry.get("alias")
+        if not isinstance(alias, str) or not alias:
+            raise _error(rule, f"{node_path}.alias", "must be a non-empty string.", index)
+        if alias in SPECIAL_ALIASES:
+            raise _error(rule, f"{node_path}.alias", "must not use a reserved alias.", index)
+        if alias in aliases:
+            raise _error(rule, f"{node_path}.alias", f"duplicate alias '{alias}'.", index)
+        aliases.add(alias)
+        if "type" not in entry:
+            raise _error(rule, f"{node_path}.type", "is required.", index)
+        _validate_choice_spec(entry["type"], f"{node_path}.type", rule, index, allowed_node_types)
+        _validate_count_spec(entry.get("count", 1), rule, f"{node_path}.count", index)
         attributes = entry.get("attributes", {})
-        if not isinstance(attributes, dict):
-            raise RuleSchemaError(f"Grammar rule '{rule['name']}' has invalid create_nodes attributes.")
+        _validate_node_attributes(attributes, rule, f"{node_path}.attributes", index)
 
     create_edges = action.get("create_edges", [])
     if not isinstance(create_edges, list):
-        raise RuleSchemaError(f"Grammar rule '{rule['name']}' has invalid create_edges section.")
-    for entry in create_edges:
-        if (
-            not isinstance(entry, dict)
-            or not entry.get("source")
-            or not entry.get("target")
-            or not entry.get("edge_type")
-        ):
-            raise RuleSchemaError(f"Grammar rule '{rule['name']}' has invalid create_edges entry.")
+        raise _error(rule, "action.create_edges", "must be a list.", index)
+    valid_aliases = aliases | SPECIAL_ALIASES
+    for edge_index, entry in enumerate(create_edges):
+        edge_path = f"action.create_edges[{edge_index}]"
+        if not isinstance(entry, dict):
+            raise _error(rule, edge_path, "must be a mapping.", index)
+        unknown_edge_keys = _unknown_keys(entry, CREATE_EDGE_KEYS)
+        if unknown_edge_keys:
+            raise _error(rule, edge_path, f"unsupported create_edges field(s): {', '.join(unknown_edge_keys)}.", index)
+        for endpoint in ("source", "target"):
+            alias = entry.get(endpoint)
+            if not isinstance(alias, str) or not alias:
+                raise _error(rule, f"{edge_path}.{endpoint}", "must be a non-empty string.", index)
+            if alias not in valid_aliases:
+                raise _error(rule, f"{edge_path}.{endpoint}", f"unknown alias '{alias}'.", index)
+        edge_type = entry.get("edge_type")
+        if not isinstance(edge_type, str) or not edge_type:
+            raise _error(rule, f"{edge_path}.edge_type", "must be a non-empty string.", index)
+        if allowed_edge_types is not None and edge_type not in allowed_edge_types:
+            raise _error(rule, f"{edge_path}.edge_type", f"unknown edge type '{edge_type}'.", index)
         mode = entry.get("mode", "one_to_one")
-        if mode not in {"one_to_one", "each_to_one", "one_to_each", "adjacent_pairs"}:
-            raise RuleSchemaError(f"Grammar rule '{rule['name']}' has invalid create_edges mode '{mode}'.")
+        if mode not in EDGE_MODES:
+            raise _error(rule, f"{edge_path}.mode", f"invalid mode '{mode}'.", index)
 
 
 def load_grammar_rules(config: dict) -> list[dict]:
@@ -93,8 +238,15 @@ def load_grammar_rules(config: dict) -> list[dict]:
         return []
     if not isinstance(rules, list):
         raise RuleSchemaError("Config field 'grammar_rules' must be a list.")
-    for rule in rules:
-        validate_grammar_rule(rule)
+    allowed_node_types = config.get("allowed_node_types")
+    allowed_edge_types = config.get("allowed_edge_types")
+    for index, rule in enumerate(rules):
+        validate_grammar_rule(
+            rule,
+            allowed_node_types=allowed_node_types if isinstance(allowed_node_types, list) else None,
+            allowed_edge_types=allowed_edge_types if isinstance(allowed_edge_types, list) else None,
+            index=index,
+        )
     return rules
 
 

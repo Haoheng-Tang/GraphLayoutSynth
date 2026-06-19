@@ -15,6 +15,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - Config: YAML, default `configs/generic_building.yaml`
 - CLI commands:
   - `python -m graph_layout_synth generate`
+  - `python -m graph_layout_synth validate-config`
   - `python -m graph_layout_synth archive-final`
   - `python -m graph_layout_synth evaluate-llm`
 - Generation uses a seed graph and stochastic YAML `grammar_rules` when present.
@@ -29,6 +30,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 ## Key Modules
 
 - `config.py`: loads and validates YAML config; defines config dataclasses.
+- `config_validator.py`: user-facing config validation reports for CLI/tests.
 - `rule_schema.py`: validates and applies executable YAML grammar rules.
 - `tracing.py`: trace event dataclass, trace JSON/markdown export, and compact trace metadata helpers.
 - `grammar.py`: creates the seed graph and orchestrates graph expansion.
@@ -81,6 +83,12 @@ Run tests:
 
 ```bash
 python -m pytest
+```
+
+Validate a config before generation:
+
+```bash
+python -m graph_layout_synth validate-config --config configs/generic_building.yaml
 ```
 
 Smoke test generation:
@@ -157,6 +165,11 @@ Typical generated files:
 - Do not auto-archive generated, best, or top-k candidates. Archive entries represent accepted final outputs only.
 - Prefer the selection-file workflow for archiving. Direct `--review-summary` archiving is secondary for manual/test workflows.
 - Do not update the final-output archive automatically during `generate`; use `archive-final` with explicit selection input.
+- Read `docs/GRAMMAR_CONFIG_SKILLS.md` before modifying or generating YAML grammar configs.
+- Do not invent unsupported config or grammar-rule fields.
+- Run `validate-config` after changing any config.
+- LLM-generated YAML must be validated before it is used for generation.
+- Do not overwrite baseline configs with LLM-generated variants; save variants under `outputs/` or a dedicated variants directory.
 
 ## Coding Style
 
