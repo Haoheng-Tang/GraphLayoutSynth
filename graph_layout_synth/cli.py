@@ -15,6 +15,7 @@ from graph_layout_synth.archive import (
     resolve_review_summary_from_selection,
 )
 from graph_layout_synth.config import DEFAULT_CONFIG_PATH, load_config
+from graph_layout_synth.config_validator import export_config_validation_report, validate_config_file
 from graph_layout_synth.diversity import (
     DEFAULT_LOW_NOVELTY_THRESHOLD,
     DEFAULT_NEAR_DUPLICATE_THRESHOLD,
@@ -59,6 +60,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Save PNG visualizations for generated candidates.",
     )
+
+    validate_config = subparsers.add_parser(
+        "validate-config",
+        help="Validate a YAML config without generating graphs.",
+    )
+    validate_config.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    validate_config.add_argument("--output", type=Path, default=None)
 
     evaluate_llm = subparsers.add_parser(
         "evaluate-llm",
@@ -287,6 +295,26 @@ def run_generate(args: argparse.Namespace) -> None:
         print(f"Saved top-k PNG visualizations to {args.output_dir}.")
 
 
+def run_validate_config(args: argparse.Namespace) -> None:
+    """Validate a YAML config and optionally export a validation report."""
+    report = validate_config_file(args.config)
+    if args.output:
+        export_config_validation_report(report, args.output)
+
+    if report.is_valid:
+        print(f"Config is valid: {args.config}.")
+        if args.output:
+            print(f"Validation report: {args.output}.")
+        return
+
+    print(f"Config is invalid: {args.config}.")
+    for error in report.errors:
+        print(f"- {error}")
+    if args.output:
+        print(f"Validation report: {args.output}.")
+    raise SystemExit(1)
+
+
 def run_evaluate_llm(args: argparse.Namespace) -> None:
     """Run optional Claude interpretation over ranking reports."""
     try:
@@ -350,6 +378,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "generate":
         run_generate(args)
+    elif args.command == "validate-config":
+        run_validate_config(args)
     elif args.command == "evaluate-llm":
         run_evaluate_llm(args)
     elif args.command == "archive-final":

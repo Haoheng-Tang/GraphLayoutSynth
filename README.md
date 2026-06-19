@@ -73,6 +73,24 @@ The default config is `configs/generic_building.yaml`. It defines:
 
 Pass another YAML file with `--config` to run the same pipeline with different settings.
 
+## Grammar Config Validation
+
+Validate grammar configs before using them for generation, especially when a YAML variant was proposed by Claude or another LLM:
+
+```bash
+python -m graph_layout_synth validate-config --config configs/generic_building.yaml
+```
+
+You can also write a small JSON validation report:
+
+```bash
+python -m graph_layout_synth validate-config \
+  --config outputs/llm_grammar_variant.yaml \
+  --output outputs/config_validation_report.json
+```
+
+The Claude-facing instruction document for schema-valid YAML variants is `docs/GRAMMAR_CONFIG_SKILLS.md`. Read it before modifying `grammar_rules` or asking an LLM to propose config variants.
+
 ## Grammar Rules
 
 `grammar_rules` are a small executable YAML rule schema, not a full graph-grammar formalism. Rules match nodes by exact attribute values, then update matched nodes, create nodes, create edges, and optionally remove the matched node.
@@ -337,6 +355,7 @@ Tests must not make live Anthropic API calls. LLM-related tests should mock or i
 ## Package Map
 
 - `graph_layout_synth/config.py`: YAML loading, validation, and typed config dataclasses
+- `graph_layout_synth/config_validator.py`: user-facing config validation reports for CLI and tests
 - `graph_layout_synth/rule_schema.py`: executable YAML grammar rule validation and application
 - `graph_layout_synth/grammar.py`: seed graph and expansion orchestration
 - `graph_layout_synth/generator.py`: candidate generation and generation metadata
@@ -350,4 +369,4 @@ Tests must not make live Anthropic API calls. LLM-related tests should mock or i
 - `graph_layout_synth/visualize.py`: static PNG graph visualization
 - `graph_layout_synth/tracing.py`: rule-application trace event and trace export helpers
 - `graph_layout_synth/llm_evaluator.py`: optional Claude interpretation of deterministic reports
-- `graph_layout_synth/cli.py`: `generate`, `archive-final`, and `evaluate-llm` commands
+- `graph_layout_synth/cli.py`: `generate`, `validate-config`, `archive-final`, and `evaluate-llm` commands
