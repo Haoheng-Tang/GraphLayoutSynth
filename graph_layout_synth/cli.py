@@ -6,6 +6,8 @@ import argparse
 import json
 from pathlib import Path
 
+import yaml
+
 from graph_layout_synth.archive import (
     ArchiveError,
     add_final_output_to_archive,
@@ -30,7 +32,19 @@ from graph_layout_synth.export import (
     graph_report_data,
 )
 from graph_layout_synth.generator import generate_candidates
+from graph_layout_synth.grammar_variant_assistant import (
+    GrammarVariantError,
+    build_grammar_variant_prompt,
+    extract_rationale_from_llm_response,
+    extract_yaml_from_llm_response,
+    invalid_variant_path,
+    propose_grammar_variant_with_claude,
+    validate_room_mix_targets,
+    validate_variant_yaml_text,
+    write_variant_outputs,
+)
 from graph_layout_synth.llm_evaluator import LlmEvaluationError, evaluate_candidates_with_llm
+from graph_layout_synth.llm_evaluator import DEFAULT_CLAUDE_MODEL, load_llm_environment
 from graph_layout_synth.ranking import rank_candidates
 from graph_layout_synth.review_summary import (
     build_candidate_pool_summary,
@@ -90,6 +104,39 @@ def build_parser() -> argparse.ArgumentParser:
     archive_final.add_argument("--allow-duplicate-output-id", action="store_true")
     archive_final.add_argument("--review-summary", type=Path, default=None)
     archive_final.add_argument("--notes", default=None)
+
+    propose_variant = subparsers.add_parser(
+        "propose-grammar-variant",
+        help="Use Claude to propose a validated YAML grammar/config variant.",
+    )
+    propose_variant.add_argument("--base-config", type=Path, default=DEFAULT_CONFIG_PATH)
+    propose_variant.add_argument("--design-intent", default=None)
+    propose_variant.add_argument("--design-intent-file", type=Path, default=None)
+    propose_variant.add_argument("--diversity-report", type=Path, default=None)
+    propose_variant.add_argument("--review-summary", type=Path, default=None)
+    propose_variant.add_argument("--archive-path", type=Path, default=None)
+    propose_variant.add_argument("--output-config", type=Path, default=Path("outputs/llm_grammar_variant.yaml"))
+    propose_variant.add_argument(
+        "--rationale-output",
+        type=Path,
+        default=Path("outputs/llm_grammar_variant_rationale.md"),
+    )
+    propose_variant.add_argument("--raw-output", type=Path, default=Path("outputs/llm_grammar_variant_raw.md"))
+    propose_variant.add_argument("--model", default=DEFAULT_CLAUDE_MODEL)
+    propose_variant.add_argument("--max-tokens", type=int, default=4000)
+    propose_variant.add_argument("--env-path", default=".env.local")
+    propose_variant.add_argument("--write-prompt", type=Path, default=None)
+    propose_variant.add_argument("--no-call", action="store_true")
+    propose_variant.add_argument(
+        "--require-room-mix-targets",
+        action="store_true",
+        help="Reject generated YAML unless it matches the default patient/support room-mix targets.",
+    )
+    propose_variant.add_argument("--patient-room-total-min", type=int, default=20)
+    propose_variant.add_argument("--patient-room-total-max", type=int, default=30)
+    propose_variant.add_argument("--clinical-support-ratio", type=float, default=0.25)
+    propose_variant.add_argument("--staff-support-ratio", type=float, default=0.10)
+    propose_variant.add_argument("--room-mix-ratio-tolerance", type=float, default=0.08)
 
     return parser
 
@@ -371,6 +418,108 @@ def run_archive_final(args: argparse.Namespace) -> None:
     print(f"Archive size: {len(archive.get('outputs', []))}.")
 
 
+def _read_yaml_mapping(path: Path) -> dict:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise GrammarVariantError(f"YAML file must contain a mapping: {path}")
+    return data
+
+
+def _read_optional_json(path: Path | None) -> dict | list[dict] | None:
+    if path is None or not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _combined_design_intent(inline_intent: str | None, intent_file: Path | None) -> str | None:
+    parts = []
+    if intent_file:
+        parts.append(intent_file.read_text(encoding="utf-8").strip())
+    if inline_intent:
+        parts.append(inline_intent.strip())
+    return "\n\n".join(part for part in parts if part) or None
+
+
+def run_propose_grammar_variant(args: argparse.Namespace) -> None:
+    """Use Claude to propose a validated YAML config variant."""
+    try:
+        base_config = _read_yaml_mapping(args.base_config)
+        validate_variant_yaml_text(yaml.safe_dump(base_config, sort_keys=False))
+        grammar_skills_text = Path("docs/GRAMMAR_CONFIG_SKILLS.md").read_text(encoding="utf-8")
+        prompt = build_grammar_variant_prompt(
+            base_config,
+            grammar_skills_text,
+            design_intent=_combined_design_intent(args.design_intent, args.design_intent_file),
+            diversity_report=_read_optional_json(args.diversity_report),
+            review_summary=_read_optional_json(args.review_summary),
+            archive=_read_optional_json(args.archive_path),
+        )
+        if args.write_prompt:
+            args.write_prompt.parent.mkdir(parents=True, exist_ok=True)
+            args.write_prompt.write_text(prompt, encoding="utf-8")
+        if args.no_call:
+            if not args.write_prompt:
+                raise GrammarVariantError("--no-call requires --write-prompt so the dry-run has an artifact.")
+            print(f"Wrote grammar-variant prompt to {args.write_prompt}.")
+            print("No Claude call was made.")
+            return
+
+        load_llm_environment(args.env_path)
+        print(f"Calling Claude grammar variant assistant with model {args.model}.")
+        print(f"Prompt length: {len(prompt)} characters.")
+        response_text = propose_grammar_variant_with_claude(
+            prompt,
+            model=args.model,
+            max_tokens=args.max_tokens,
+        )
+        print(f"Received Claude response: {len(response_text)} characters.")
+        if args.raw_output:
+            args.raw_output.parent.mkdir(parents=True, exist_ok=True)
+            args.raw_output.write_text(response_text, encoding="utf-8")
+            print(f"Saved raw Claude response to {args.raw_output}.")
+        try:
+            print("Extracting and validating YAML config variant.")
+            yaml_text = extract_yaml_from_llm_response(response_text)
+            raw_variant_config = validate_variant_yaml_text(yaml_text)
+            if args.require_room_mix_targets:
+                room_mix_report = validate_room_mix_targets(
+                    raw_variant_config,
+                    patient_total_min=args.patient_room_total_min,
+                    patient_total_max=args.patient_room_total_max,
+                    clinical_ratio=args.clinical_support_ratio,
+                    staff_ratio=args.staff_support_ratio,
+                    ratio_tolerance=args.room_mix_ratio_tolerance,
+                )
+                print(
+                    "Room-mix target check passed: "
+                    f"{room_mix_report['estimated_totals']}."
+                )
+        except GrammarVariantError:
+            invalid_path = invalid_variant_path(args.output_config)
+            invalid_path.parent.mkdir(parents=True, exist_ok=True)
+            if "yaml_text" in locals():
+                invalid_path.write_text(yaml_text.rstrip() + "\n", encoding="utf-8")
+                print(f"Saved invalid YAML to {invalid_path}.")
+            if args.raw_output:
+                print(f"Saved raw Claude response to {args.raw_output}.")
+            raise
+
+        rationale_text = extract_rationale_from_llm_response(response_text)
+        write_variant_outputs(
+            yaml_text,
+            rationale_text,
+            args.output_config,
+            args.rationale_output,
+        )
+    except (GrammarVariantError, FileNotFoundError, json.JSONDecodeError, yaml.YAMLError) as exc:
+        raise SystemExit(str(exc)) from exc
+
+    print(f"Saved grammar config variant to {args.output_config}.")
+    if args.rationale_output and rationale_text:
+        print(f"Saved rationale to {args.rationale_output}.")
+    print(f"Model: {args.model}.")
+
+
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -384,6 +533,8 @@ def main(argv: list[str] | None = None) -> None:
         run_evaluate_llm(args)
     elif args.command == "archive-final":
         run_archive_final(args)
+    elif args.command == "propose-grammar-variant":
+        run_propose_grammar_variant(args)
 
 
 if __name__ == "__main__":
