@@ -21,4 +21,6 @@ outputs/*.csv
 outputs/**/*.csv
 outputs/*.md
 outputs/**/*.md
+outputs/llm_grammar_variant.yaml
+outputs/variant_requirements.txt
 !outputs/.gitkeep

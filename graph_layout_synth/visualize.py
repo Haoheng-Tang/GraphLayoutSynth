@@ -17,11 +17,11 @@ from graph_layout_synth.config import LayoutConfig
 
 
 NODE_COLORS = {
-    "Corridor": "#f2c14e",
-    "Room": "#4f8ef7",
-    "SupportRoom": "#7bc96f",
-    "ServiceRoom": "#d96c75",
-    "Zone": "#b39ddb",
+    "Corridor": "#f2cc8f",
+    "Room": "#e07a5f",
+    "SupportRoom": "#81b29a",
+    "ServiceRoom": "#3d405b",
+    "Zone": "#f4f1de",
     "BuildingFloor": "#9e9e9e",
 }
 
@@ -29,6 +29,10 @@ EDGE_STYLES = {
     "door": "solid",
     "wall": "dashed",
 }
+
+BASE_NODE_SIZE = 500
+MIN_NODE_SIZE = 50
+NODE_SIZE_REFERENCE_COUNT = 12
 
 
 def _node_color(node_type: str | None) -> str:
@@ -46,6 +50,14 @@ def _configured_colors(config: LayoutConfig | None) -> tuple[dict[str, str], str
         node_colors.update(config.visualization.node_colors)
         unknown_node_color = config.visualization.unknown_node_color
     return node_colors, unknown_node_color
+
+
+def scaled_node_size(node_count: int) -> int:
+    """Return a readable node size that shrinks as graph node count grows."""
+    if node_count <= 0:
+        return BASE_NODE_SIZE
+    scale = (NODE_SIZE_REFERENCE_COUNT / max(node_count, NODE_SIZE_REFERENCE_COUNT)) ** 0.5
+    return max(MIN_NODE_SIZE, round(BASE_NODE_SIZE * scale))
 
 
 def visualize_graph(
@@ -67,21 +79,15 @@ def visualize_graph(
         configured_node_colors.get(node_types.get(node, ""), unknown_node_color)
         for node in G.nodes
     ]
-    labels = {
-        node: node_types.get(node, str(node))
-        for node in G.nodes
-    }
-
     nx.draw_networkx_nodes(
         G,
         pos,
         node_color=node_colors,
-        node_size=1100,
+        node_size=scaled_node_size(G.number_of_nodes()),
         edgecolors="#333333",
         linewidths=0.8,
         ax=ax,
     )
-    nx.draw_networkx_labels(G, pos, labels=labels, font_size=8, ax=ax)
 
     edge_types = nx.get_edge_attributes(G, "edge_type")
     for edge_style in {"solid", "dashed", "dotted"}:

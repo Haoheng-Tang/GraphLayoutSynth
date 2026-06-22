@@ -6,7 +6,7 @@ Concise working notes for future coding agents on GraphLayoutSynth.
 
 GraphLayoutSynth is an early-stage Python research prototype for stochastic graph-grammar generation and deterministic evaluation of building layout graphs. Graphs are NetworkX graphs with attributed nodes and edges. Generated layouts are not geometric plans, building-code checks, life-safety checks, or compliance-certified designs.
 
-Deterministic validation and ranking are the source of truth. Optional Claude evaluation is report interpretation only.
+Deterministic validation and ranking are the source of truth. Optional Claude evaluation is report interpretation only. Optional Claude grammar-variant assistance proposes YAML configs only; it must not generate raw graphs or bypass validation.
 
 ## Current Architecture
 
@@ -16,6 +16,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - CLI commands:
   - `python -m graph_layout_synth generate`
   - `python -m graph_layout_synth validate-config`
+  - `python -m graph_layout_synth propose-grammar-variant`
   - `python -m graph_layout_synth archive-final`
   - `python -m graph_layout_synth evaluate-llm`
 - Generation uses a seed graph and stochastic YAML `grammar_rules` when present.
@@ -24,8 +25,10 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - Candidate review summaries provide compact human/RAG-oriented graph summaries with artifact pointers, separated support-type counts/ratios, wall-adjacency proxy metrics with node references, and typed accessibility summaries.
 - Diversity and novelty metrics use feature vectors extracted from candidate review summaries, not raw graph edit distance, and do not alter deterministic ranking.
 - Final-output archiving is explicit and selection-file based; archive entries represent accepted final outputs, not all generated candidates.
+- Optional Claude grammar-variant assistance proposes complete YAML config variants only; generated YAML must validate before normal generation.
 - Outputs include candidate graph JSON, candidate reports, trace JSON/markdown, review summary JSON, `diversity_report.json`, optional `final_output_archive.json`, `ranking_report.json`, `ranking_report.csv`, and optional PNG visualizations.
 - Optional Claude evaluation reads deterministic reports and writes markdown.
+- Optional Claude grammar-variant assistance reads config/report/archive context and proposes complete YAML config variants that must validate before generation.
 
 ## Key Modules
 
@@ -41,6 +44,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - `review_summary.py`: compact candidate and pool review summaries, including degree, wall-adjacency proxy metrics, and typed accessibility summaries.
 - `diversity.py`: diversity feature extraction, normalized pairwise distance, archive novelty, and feature-bin coverage metrics.
 - `archive.py`: explicit final-output archive utilities using LLM/manual selection files and candidate review summaries.
+- `grammar_variant_assistant.py`: optional Claude prompt, YAML extraction, validation, and artifact-writing helpers for grammar/config variants.
 - `export.py`: node-link graph JSON, candidate reports, ranking JSON, and ranking CSV.
 - `visualize.py`: static Matplotlib PNG graph visualization.
 - `llm_evaluator.py`: optional Claude interpretation; never replaces deterministic ranking.
@@ -110,11 +114,21 @@ python -m graph_layout_synth evaluate-llm \
   --ranking-report outputs/ranking_report.json \
   --candidate-reports outputs/top_1_candidate_1_report.json \
   --output outputs/llm_evaluation.md \
-  --model claude-3-5-haiku-latest \
+  --model claude-sonnet-4-6 \
   --env-path .env.local
 ```
 
 The exact top-k candidate filenames depend on ranking results.
+
+Prompt-only grammar variant dry run:
+
+```bash
+python -m graph_layout_synth propose-grammar-variant \
+  --base-config configs/generic_building.yaml \
+  --design-intent-file docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.txt \
+  --write-prompt outputs/grammar_variant_prompt.md \
+  --no-call
+```
 
 ## Secrets And Outputs
 
@@ -166,10 +180,14 @@ Typical generated files:
 - Prefer the selection-file workflow for archiving. Direct `--review-summary` archiving is secondary for manual/test workflows.
 - Do not update the final-output archive automatically during `generate`; use `archive-final` with explicit selection input.
 - Read `docs/GRAMMAR_CONFIG_SKILLS.md` before modifying or generating YAML grammar configs.
+- Read `docs/GRAMMAR_CONFIG_SKILLS.md` before changing grammar config generation logic.
 - Do not invent unsupported config or grammar-rule fields.
 - Run `validate-config` after changing any config.
 - LLM-generated YAML must be validated before it is used for generation.
+- Invalid LLM-generated YAML should be saved separately, such as `*.invalid.yaml`, and must not be used for generation.
 - Do not overwrite baseline configs with LLM-generated variants; save variants under `outputs/` or a dedicated variants directory.
+- When asking Claude for room-mix changes, specify concrete alias and count constraints. Prefer separate aliases such as `patient`, `clinical`, and `staff` when `PatientRoom`, `ClinicalSupport`, and `StaffSupport` need independent counts or edges.
+- Use `--require-room-mix-targets` for the current 20-30 `PatientRoom`, ~25% `ClinicalSupport`, and ~10% `StaffSupport` target so schema-valid but semantically wrong LLM YAML is rejected.
 
 ## Coding Style
 

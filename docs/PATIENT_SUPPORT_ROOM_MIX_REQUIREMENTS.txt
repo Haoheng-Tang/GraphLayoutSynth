@@ -1,0 +1,15 @@
+Generate 20-30 total PatientRoom nodes.
+
+In expand_zone_to_room_cluster, use separate aliases:
+- patient: PatientRoom, count min 7 max 10 per zone
+- clinical: ClinicalSupport, count min 2 max 3 per zone
+- staff: StaffSupport, count 1 per zone
+
+Do not use alias room for PatientRoom, ClinicalSupport, or StaffSupport.
+
+Update room_type_counts to:
+PatientRoom: 24
+ClinicalSupport: 6
+StaffSupport: 3
+
+Preserve schema validity and return a complete YAML config.
