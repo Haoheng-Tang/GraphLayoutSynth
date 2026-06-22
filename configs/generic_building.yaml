@@ -141,10 +141,11 @@ ranking:
 
 visualization:
   node_colors:
-    BuildingFloor: "#9e9e9e"
-    Zone: "#b39ddb"
-    Corridor: "#f2c14e"
-    PatientRoom: "#4f8ef7"
-    ClinicalSupport: "#7bc96f"
-    StaffSupport: "#d96c75"
+    BuildingFloor: '#9e9e9e'
+    Zone: '#f4f1de'
+    Corridor: '#f2cc8f'
+    PatientRoom: '#e07a5f'
+    ClinicalSupport: '#81b29a'
+    StaffSupport: '#3d405b'
+
   unknown_node_color: "#c7c7c7"
