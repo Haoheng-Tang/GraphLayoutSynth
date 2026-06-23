@@ -193,6 +193,7 @@ def test_prompt_builder_includes_skills_base_config_intent_and_reports():
     assert "feature_bin_coverage" in prompt
     assert "pool_summary" in prompt
     assert "final_001" in prompt
+    assert "room_type_counts value is reachable" in prompt
     assert "Return a complete YAML config only in a fenced yaml block" in prompt
 
 

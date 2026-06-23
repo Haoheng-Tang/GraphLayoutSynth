@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 from graph_layout_synth.config import ConfigError, validate_config
+from graph_layout_synth.config_contract import ConfigContract, build_config_contract
 from graph_layout_synth.llm_evaluator import DEFAULT_CLAUDE_MODEL, load_llm_environment
 
 
@@ -39,7 +40,9 @@ ROOM_MIX_TARGET_KEYS = {
     "expected_room_type_counts",
 }
 ROOM_MIX_COUNT_KEYS = {"patient", "clinical", "staff"}
-ROOM_MIX_ROOM_TYPE_KEYS = {"PatientRoom", "ClinicalSupport", "StaffSupport"}
+FALLBACK_PATIENT_TYPE = "PatientRoom"
+FALLBACK_CLINICAL_TYPE = "ClinicalSupport"
+FALLBACK_STAFF_TYPE = "StaffSupport"
 
 
 def _compact_json(data: Any, *, max_chars: int = 12000) -> str:
@@ -84,7 +87,64 @@ def _validate_count_parameter(value: Any, path: str) -> None:
     raise GrammarVariantError(f"{path} must be a positive integer or min/max mapping.")
 
 
-def validate_variant_requirements(requirements: dict[str, Any]) -> dict[str, Any]:
+def _first_group_type(contract: ConfigContract | None, *group_names: str) -> str | None:
+    if contract is None:
+        return None
+    for group_name in group_names:
+        values = contract.semantic_node_groups.get(group_name, [])
+        if values:
+            return values[0]
+    return None
+
+
+def _default_room_mix_alias_types(contract: ConfigContract | None = None) -> dict[str, str]:
+    if contract is None:
+        return {
+            "patient": FALLBACK_PATIENT_TYPE,
+            "clinical": FALLBACK_CLINICAL_TYPE,
+            "staff": FALLBACK_STAFF_TYPE,
+        }
+
+    patient_type = (
+        _first_group_type(contract, "patient", "patient_room", "patient_rooms")
+        or (FALLBACK_PATIENT_TYPE if FALLBACK_PATIENT_TYPE in contract.allowed_node_types else None)
+        or (contract.room_like_node_types[0] if contract.room_like_node_types else None)
+    )
+    clinical_type = (
+        _first_group_type(contract, "clinical", "clinical_support")
+        or (FALLBACK_CLINICAL_TYPE if FALLBACK_CLINICAL_TYPE in contract.allowed_node_types else None)
+        or (contract.support_node_types[0] if contract.support_node_types else None)
+    )
+    staff_type = (
+        _first_group_type(contract, "staff", "staff_support")
+        or (FALLBACK_STAFF_TYPE if FALLBACK_STAFF_TYPE in contract.allowed_node_types else None)
+        or next((node_type for node_type in contract.support_node_types if node_type != clinical_type), None)
+        or clinical_type
+    )
+    return {
+        "patient": patient_type or FALLBACK_PATIENT_TYPE,
+        "clinical": clinical_type or FALLBACK_CLINICAL_TYPE,
+        "staff": staff_type or FALLBACK_STAFF_TYPE,
+    }
+
+
+def _room_mix_alias_types_from_requirements(
+    requirements: dict[str, Any],
+    contract: ConfigContract | None = None,
+) -> dict[str, str]:
+    room_mix = requirements.get("room_mix_targets", {})
+    default_types = _default_room_mix_alias_types(contract)
+    return {
+        room_mix.get("patient_alias", "patient"): default_types["patient"],
+        room_mix.get("clinical_alias", "clinical"): default_types["clinical"],
+        room_mix.get("staff_alias", "staff"): default_types["staff"],
+    }
+
+
+def validate_variant_requirements(
+    requirements: dict[str, Any],
+    contract: ConfigContract | None = None,
+) -> dict[str, Any]:
     """Validate structured variant requirements and return a normalized copy."""
     if not isinstance(requirements, dict):
         raise GrammarVariantError("Variant requirements must be a mapping.")
@@ -156,23 +216,23 @@ def validate_variant_requirements(requirements: dict[str, Any]) -> dict[str, Any
     if expected_counts:
         if not isinstance(expected_counts, dict):
             raise GrammarVariantError("room_mix_targets.expected_room_type_counts must be a mapping.")
-        unknown_room_types = _unknown_mapping_keys(expected_counts, ROOM_MIX_ROOM_TYPE_KEYS)
+        allowed_room_types = set(contract.allowed_node_types) if contract is not None else set(_default_room_mix_alias_types().values())
+        unknown_room_types = _unknown_mapping_keys(expected_counts, allowed_room_types)
         if unknown_room_types:
             raise GrammarVariantError(
                 "room_mix_targets.expected_room_type_counts has unsupported field(s): "
                 + ", ".join(unknown_room_types)
                 + "."
             )
-        for key in ROOM_MIX_ROOM_TYPE_KEYS:
-            if key in expected_counts:
-                _require_positive_int(expected_counts, key, "room_mix_targets.expected_room_type_counts")
+        for key in expected_counts:
+            _require_positive_int(expected_counts, key, "room_mix_targets.expected_room_type_counts")
     normalized_room_mix["expected_room_type_counts"] = expected_counts
 
     normalized["room_mix_targets"] = normalized_room_mix
     return normalized
 
 
-def load_variant_requirements(path: str | Path) -> dict[str, Any]:
+def load_variant_requirements(path: str | Path, contract: ConfigContract | None = None) -> dict[str, Any]:
     """Load YAML/JSON variant requirements and validate their strict structure."""
     requirements_path = Path(path)
     try:
@@ -181,10 +241,13 @@ def load_variant_requirements(path: str | Path) -> dict[str, Any]:
         raise GrammarVariantError(f"Variant requirements file not found: {requirements_path}") from exc
     except yaml.YAMLError as exc:
         raise GrammarVariantError(f"Variant requirements file is not valid YAML/JSON: {requirements_path}") from exc
-    return validate_variant_requirements(raw_requirements)
+    return validate_variant_requirements(raw_requirements, contract=contract)
 
 
-def room_mix_kwargs_from_requirements(requirements: dict[str, Any] | None) -> dict[str, Any]:
+def room_mix_kwargs_from_requirements(
+    requirements: dict[str, Any] | None,
+    contract: ConfigContract | None = None,
+) -> dict[str, Any]:
     """Extract validate_room_mix_targets keyword arguments from requirements."""
     if not requirements:
         return {}
@@ -200,10 +263,29 @@ def room_mix_kwargs_from_requirements(requirements: dict[str, Any] | None) -> di
         "patient_alias": room_mix["patient_alias"],
         "clinical_alias": room_mix["clinical_alias"],
         "staff_alias": room_mix["staff_alias"],
+        "expected_alias_types": _room_mix_alias_types_from_requirements(requirements, contract),
     }
 
 
-def variant_requirements_to_design_intent(requirements: dict[str, Any] | None) -> str | None:
+def room_mix_kwargs_from_contract(contract: ConfigContract | None) -> dict[str, Any]:
+    """Extract room-mix validation kwargs from the live config contract."""
+    if contract is None or not contract.room_mix_targets:
+        return {}
+    requirements = validate_variant_requirements(
+        {
+            "version": 1,
+            "design_intent": "",
+            "room_mix_targets": contract.room_mix_targets,
+        },
+        contract=contract,
+    )
+    return room_mix_kwargs_from_requirements(requirements, contract=contract)
+
+
+def variant_requirements_to_design_intent(
+    requirements: dict[str, Any] | None,
+    contract: ConfigContract | None = None,
+) -> str | None:
     """Render structured variant requirements into prompt text for Claude."""
     if not requirements:
         return None
@@ -214,15 +296,19 @@ def variant_requirements_to_design_intent(requirements: dict[str, Any] | None) -
 
     room_mix = requirements.get("room_mix_targets")
     if isinstance(room_mix, dict) and room_mix.get("enabled", False):
+        alias_types = _room_mix_alias_types_from_requirements(requirements, contract)
+        alias_type_text = ", ".join(f"`{alias}` for `{node_type}`" for alias, node_type in alias_types.items())
+        patient_type = alias_types[room_mix["patient_alias"]]
+        clinical_type = alias_types[room_mix["clinical_alias"]]
+        staff_type = alias_types[room_mix["staff_alias"]]
         parts.append(
             "Structured room-mix requirements:\n"
-            f"- Use separate aliases `{room_mix['patient_alias']}`, `{room_mix['clinical_alias']}`, "
-            f"and `{room_mix['staff_alias']}` for PatientRoom, ClinicalSupport, and StaffSupport.\n"
-            f"- Generate {room_mix['patient_total_min']}-{room_mix['patient_total_max']} total PatientRoom nodes.\n"
-            f"- Generate ClinicalSupport at about {room_mix['clinical_ratio']:.0%} of PatientRoom count.\n"
-            f"- Generate StaffSupport at about {room_mix['staff_ratio']:.0%} of PatientRoom count.\n"
+            f"- Use separate aliases {alias_type_text}.\n"
+            f"- Generate {room_mix['patient_total_min']}-{room_mix['patient_total_max']} total {patient_type} nodes.\n"
+            f"- Generate {clinical_type} at about {room_mix['clinical_ratio']:.0%} of {patient_type} count.\n"
+            f"- Generate {staff_type} at about {room_mix['staff_ratio']:.0%} of {patient_type} count.\n"
             f"- Ratio tolerance for semantic validation is {room_mix['ratio_tolerance']:.0%}.\n"
-            "- Do not group PatientRoom, ClinicalSupport, or StaffSupport under a shared room/support alias."
+            "- Do not group independently targeted room types under a shared room/support alias."
         )
         suggested_counts = room_mix.get("suggested_per_zone_counts")
         if suggested_counts:
@@ -235,6 +321,8 @@ def variant_requirements_to_design_intent(requirements: dict[str, Any] | None) -
             parts.append(
                 "Update top-level room_type_counts to align with:\n"
                 + yaml.safe_dump(expected_counts, sort_keys=True).strip()
+                + "\nEnsure each top-level room_type_counts value falls within the total min/max range "
+                "implied by the grammar rule counts and the generated zone count range."
             )
     return "\n\n".join(parts).strip() or None
 
@@ -249,11 +337,18 @@ def build_grammar_variant_prompt(
 ) -> str:
     """Build the prompt for proposing a complete YAML config variant."""
     base_yaml = yaml.safe_dump(base_config, sort_keys=False)
+    contract = build_config_contract(base_config)
     sections = [
         "# Task\n"
         "Propose one complete GraphLayoutSynth YAML config variant. "
         "The variant will be validated before use and then run through the existing procedural generator.\n",
         "# Grammar Config Skills\n" + grammar_skills_text.strip(),
+        "# Live Config Contract\n"
+        "These values are derived from the actual base YAML config and are the config-specific source of truth. "
+        "Use only the listed node and edge vocabularies unless the generated config updates every relevant section consistently.\n"
+        "```json\n"
+        + _compact_json(contract.to_summary())
+        + "\n```",
         "# Base YAML Config\n```yaml\n" + base_yaml.strip() + "\n```",
     ]
     if design_intent:
@@ -274,6 +369,11 @@ def build_grammar_variant_prompt(
         "Preserve required top-level sections.\n"
         "Preserve schema validity.\n"
         "Use the same grammar config format described in GRAMMAR_CONFIG_SKILLS.md.\n"
+        "Keep allowed node types, allowed edge types, semantic groups, room-mix targets, typed accessibility pairs, "
+        "and grammar rules internally consistent with the Live Config Contract.\n"
+        "When room_mix_targets.expected_room_type_counts is present, ensure each room_type_counts value is reachable "
+        "from the generated grammar counts. For example, zone_count_range multiplied by per-zone create_nodes counts "
+        "must include the declared room_type_counts value.\n"
         "Prefer modifying stochastic parameters, grammar rule counts, room-type choices, support-room mixes, and grammar-rule variants.\n"
         "Do not include raw graph JSON.\n"
         "Do not include prose inside the YAML block.\n"
@@ -460,16 +560,18 @@ def validate_room_mix_targets(
     patient_alias: str = "patient",
     clinical_alias: str = "clinical",
     staff_alias: str = "staff",
+    expected_alias_types: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Validate requested room-mix semantics for an LLM-generated config."""
     zone_rule = _find_rule(config, "Zone")
     if not zone_rule:
         raise GrammarVariantError("Room-mix target check failed: no grammar rule matches type Zone.")
 
-    expected_aliases = {
-        patient_alias: "PatientRoom",
-        clinical_alias: "ClinicalSupport",
-        staff_alias: "StaffSupport",
+    fallback_alias_types = _default_room_mix_alias_types(build_config_contract(config))
+    expected_aliases = expected_alias_types or {
+        patient_alias: fallback_alias_types["patient"],
+        clinical_alias: fallback_alias_types["clinical"],
+        staff_alias: fallback_alias_types["staff"],
     }
     per_zone_ranges: dict[str, tuple[int, int]] = {}
     for alias, node_type in expected_aliases.items():
@@ -494,10 +596,14 @@ def validate_room_mix_targets(
         for node_type, count_range in per_zone_ranges.items()
     }
 
-    patient = totals["PatientRoom"]
+    patient_type = expected_aliases[patient_alias]
+    clinical_type = expected_aliases[clinical_alias]
+    staff_type = expected_aliases[staff_alias]
+
+    patient = totals[patient_type]
     if patient["min"] < patient_total_min or patient["max"] > patient_total_max:
         raise GrammarVariantError(
-            "Room-mix target check failed: expected PatientRoom total "
+            f"Room-mix target check failed: expected {patient_type} total "
             f"{patient_total_min}-{patient_total_max}, got {patient['min']}-{patient['max']}."
         )
 
@@ -507,11 +613,11 @@ def validate_room_mix_targets(
         clinical_ratio,
         ratio_tolerance,
     )
-    clinical = totals["ClinicalSupport"]
+    clinical = totals[clinical_type]
     if clinical["min"] < clinical_min or clinical["max"] > clinical_max:
         raise GrammarVariantError(
-            "Room-mix target check failed: expected ClinicalSupport total about "
-            f"{clinical_ratio:.0%} of PatientRoom ({clinical_min}-{clinical_max}), "
+            f"Room-mix target check failed: expected {clinical_type} total about "
+            f"{clinical_ratio:.0%} of {patient_type} ({clinical_min}-{clinical_max}), "
             f"got {clinical['min']}-{clinical['max']}."
         )
 
@@ -521,11 +627,11 @@ def validate_room_mix_targets(
         staff_ratio,
         ratio_tolerance,
     )
-    staff = totals["StaffSupport"]
+    staff = totals[staff_type]
     if staff["min"] < staff_min or staff["max"] > staff_max:
         raise GrammarVariantError(
-            "Room-mix target check failed: expected StaffSupport total about "
-            f"{staff_ratio:.0%} of PatientRoom ({staff_min}-{staff_max}), got {staff['min']}-{staff['max']}."
+            f"Room-mix target check failed: expected {staff_type} total about "
+            f"{staff_ratio:.0%} of {patient_type} ({staff_min}-{staff_max}), got {staff['min']}-{staff['max']}."
         )
 
     room_type_counts = config.get("room_type_counts", {})
@@ -556,6 +662,11 @@ def validate_variant_yaml_text(yaml_text: str) -> dict:
         validate_config(raw_config)
     except ConfigError as exc:
         raise GrammarVariantError(f"Generated config failed validation: {exc}") from exc
+    contract = build_config_contract(raw_config)
+    if contract.errors:
+        raise GrammarVariantError(
+            "Generated config failed contract validation: " + "; ".join(contract.errors)
+        )
     return raw_config
 
 
@@ -582,18 +693,21 @@ def propose_grammar_variant(
     ratio_tolerance: float = 0.08,
 ) -> dict[str, Any]:
     """Call Claude, validate its YAML, and write variant artifacts."""
-    normalized_requirements = validate_variant_requirements(variant_requirements) if variant_requirements else None
-    requirements_design_intent = variant_requirements_to_design_intent(normalized_requirements)
+    base_contract = build_config_contract(base_config)
+    normalized_requirements = validate_variant_requirements(variant_requirements, contract=base_contract) if variant_requirements else None
+    requirements_design_intent = variant_requirements_to_design_intent(normalized_requirements, contract=base_contract)
     design_intent_parts = [part for part in (requirements_design_intent, design_intent) if part]
     merged_design_intent = "\n\n".join(design_intent_parts) or None
-    requirements_room_mix_kwargs = room_mix_kwargs_from_requirements(normalized_requirements)
-    if requirements_room_mix_kwargs:
+    requirements_room_mix_kwargs = room_mix_kwargs_from_requirements(normalized_requirements, contract=base_contract)
+    contract_room_mix_kwargs = room_mix_kwargs_from_contract(base_contract)
+    effective_room_mix_kwargs = requirements_room_mix_kwargs or contract_room_mix_kwargs
+    if effective_room_mix_kwargs:
         require_room_mix_targets = True
-        patient_total_min = requirements_room_mix_kwargs["patient_total_min"]
-        patient_total_max = requirements_room_mix_kwargs["patient_total_max"]
-        clinical_ratio = requirements_room_mix_kwargs["clinical_ratio"]
-        staff_ratio = requirements_room_mix_kwargs["staff_ratio"]
-        ratio_tolerance = requirements_room_mix_kwargs["ratio_tolerance"]
+        patient_total_min = effective_room_mix_kwargs["patient_total_min"]
+        patient_total_max = effective_room_mix_kwargs["patient_total_max"]
+        clinical_ratio = effective_room_mix_kwargs["clinical_ratio"]
+        staff_ratio = effective_room_mix_kwargs["staff_ratio"]
+        ratio_tolerance = effective_room_mix_kwargs["ratio_tolerance"]
 
     prompt = build_grammar_variant_prompt(
         base_config,
@@ -623,9 +737,10 @@ def propose_grammar_variant(
                 clinical_ratio=clinical_ratio,
                 staff_ratio=staff_ratio,
                 ratio_tolerance=ratio_tolerance,
-                patient_alias=requirements_room_mix_kwargs.get("patient_alias", "patient"),
-                clinical_alias=requirements_room_mix_kwargs.get("clinical_alias", "clinical"),
-                staff_alias=requirements_room_mix_kwargs.get("staff_alias", "staff"),
+                patient_alias=effective_room_mix_kwargs.get("patient_alias", "patient"),
+                clinical_alias=effective_room_mix_kwargs.get("clinical_alias", "clinical"),
+                staff_alias=effective_room_mix_kwargs.get("staff_alias", "staff"),
+                expected_alias_types=effective_room_mix_kwargs.get("expected_alias_types"),
             )
     except GrammarVariantError:
         invalid_path = invalid_variant_path(output_config_path)

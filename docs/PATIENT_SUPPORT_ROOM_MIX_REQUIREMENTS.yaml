@@ -7,20 +7,22 @@ room_mix_targets:
   patient_alias: patient
   clinical_alias: clinical
   staff_alias: staff
-  patient_total_min: 20
-  patient_total_max: 30
+  patient_total_min: 60
+  patient_total_max: 100
   clinical_ratio: 0.25
   staff_ratio: 0.10
-  ratio_tolerance: 0.08
+  ratio_tolerance: 0.2
   suggested_per_zone_counts:
     patient:
-      min: 7
-      max: 10
+      min: 20
+      max: 33
     clinical:
+      min: 6
+      max: 10
+    staff: 
       min: 2
-      max: 3
-    staff: 1
+      max: 4
   expected_room_type_counts:
-    PatientRoom: 24
-    ClinicalSupport: 6
-    StaffSupport: 3
+    PatientRoom: 70
+    ClinicalSupport: 25
+    StaffSupport: 7

@@ -91,20 +91,25 @@ python -m graph_layout_synth validate-config \
 
 The Claude-facing instruction document for schema-valid YAML variants is `docs/GRAMMAR_CONFIG_SKILLS.md`. Read it before modifying `grammar_rules` or asking an LLM to propose config variants.
 
+Validation reports include a compact `contract_summary` with the derived vocabulary and consistency context, including `room_mix_reachable_ranges` computed from grammar-rule zone counts and per-zone room counts.
+
+### Config Contract
+
+GraphLayoutSynth derives a live config contract from the YAML config. The validator and LLM prompt builder use this contract so allowed node types, edge types, semantic groups, room-mix targets, reachable room-mix ranges, typed accessibility pairs, and grammar-rule context stay synchronized when the config changes. `docs/GRAMMAR_CONFIG_SKILLS.md` describes the generic format; the live contract provides the current config-specific vocabulary.
+
 ## LLM Grammar Variants
 
 The optional `propose-grammar-variant` command asks Claude to propose a complete YAML config variant. Claude does not generate raw graphs, does not overwrite the base config, and does not bypass validation. The generated config is validated before it is saved as the normal output config.
 
-When asking for specific room mixes, state alias and count requirements explicitly. For example, ask Claude to keep `PatientRoom`, `ClinicalSupport`, and `StaffSupport` under separate aliases such as `patient`, `clinical`, and `staff`, and specify target counts or ratios such as 20-30 patient rooms, clinical support at about 25% of patient rooms, and staff support at about 10% of patient rooms.
+When asking for specific room mixes, prefer config-defined `room_mix_targets` and `semantic_node_groups` so the prompt and semantic checks share the same parameters. A separate `--variant-requirements` YAML/JSON file can still be used for run-specific overrides.
 
-For the current patient/support room-mix target, use `docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.yaml` as a structured requirements file. This file drives both the Claude prompt and the post-LLM semantic check parameters, so changing `patient_total_min`, `clinical_ratio`, aliases, or tolerance in one place updates validation behavior too.
+The grammar-variant prompt includes a machine-readable `Live Config Contract` section derived from the actual base config. If a variant introduces a new node type or edge type, the generated YAML must update every relevant config section consistently.
 
 Prompt-only dry run:
 
 ```bash
 python -m graph_layout_synth propose-grammar-variant \
   --base-config configs/generic_building.yaml \
-  --variant-requirements docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.yaml \
   --diversity-report outputs/diversity_report.json \
   --review-summary outputs/review_summary.json \
   --archive-path outputs/final_output_archive.json \
@@ -117,7 +122,6 @@ Live Claude proposal:
 ```bash
 python -m graph_layout_synth propose-grammar-variant \
   --base-config configs/generic_building.yaml \
-  --variant-requirements docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.yaml \
   --diversity-report outputs/diversity_report.json \
   --review-summary outputs/review_summary.json \
   --archive-path outputs/final_output_archive.json \

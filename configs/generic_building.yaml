@@ -25,9 +25,56 @@ zone_types:
   - service
 
 room_type_counts:
-  PatientRoom: 3
-  ClinicalSupport: 1
-  StaffSupport: 1
+  PatientRoom: 45
+  ClinicalSupport: 15
+  StaffSupport: 5
+
+semantic_node_groups:
+  room_like:
+    - PatientRoom
+    - ClinicalSupport
+    - StaffSupport
+  corridor:
+    - Corridor
+  support:
+    - ClinicalSupport
+    - StaffSupport
+  patient:
+    - PatientRoom
+  clinical_support:
+    - ClinicalSupport
+  staff_support:
+    - StaffSupport
+
+room_mix_targets:
+  enabled: true
+  patient_alias: patient
+  clinical_alias: clinical
+  staff_alias: staff
+  patient_total_min: 30
+  patient_total_max: 60
+  clinical_ratio: 0.25
+  staff_ratio: 0.10
+  ratio_tolerance: 0.2
+  suggested_per_zone_counts:
+    patient:
+      min: 10
+      max: 20
+    clinical:
+      min: 3
+      max: 5
+    staff:
+      min: 1
+      max: 2
+  expected_room_type_counts:
+    PatientRoom: 45
+    ClinicalSupport: 15
+    StaffSupport: 5
+
+typed_accessibility_pairs:
+  - source_type: PatientRoom
+    target_type: ClinicalSupport
+    edge_type: door
 
 stochastic:
   min_zone_count: 2
@@ -92,15 +139,25 @@ grammar_rules:
           count: 1
           attributes:
             is_abstract: false
-        - alias: room
-          type:
-            choices:
-              - PatientRoom
-              - ClinicalSupport
-              - StaffSupport
+        - alias: patient
+          type: PatientRoom
+          count:
+            min: 10
+            max: 20
+          attributes:
+            is_abstract: false
+        - alias: clinical
+          type: ClinicalSupport
           count:
             min: 3
             max: 5
+          attributes:
+            is_abstract: false
+        - alias: staff
+          type: StaffSupport
+          count:
+            min: 1
+            max: 2
           attributes:
             is_abstract: false
       create_edges:
@@ -108,12 +165,20 @@ grammar_rules:
           target: __neighbors__
           edge_type: door
           mode: one_to_each
-        - source: room
+        - source: patient
           target: corridor
           edge_type: door
           mode: each_to_one
-        - source: room
-          target: room
+        - source: clinical
+          target: corridor
+          edge_type: door
+          mode: each_to_one
+        - source: staff
+          target: corridor
+          edge_type: door
+          mode: each_to_one
+        - source: patient
+          target: patient
           edge_type: wall
           mode: adjacent_pairs
 

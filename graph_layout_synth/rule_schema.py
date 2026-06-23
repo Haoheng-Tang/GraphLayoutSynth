@@ -238,13 +238,14 @@ def load_grammar_rules(config: dict) -> list[dict]:
         return []
     if not isinstance(rules, list):
         raise RuleSchemaError("Config field 'grammar_rules' must be a list.")
-    allowed_node_types = config.get("allowed_node_types")
-    allowed_edge_types = config.get("allowed_edge_types")
+    from graph_layout_synth.config_contract import build_config_contract
+
+    contract = build_config_contract(config)
     for index, rule in enumerate(rules):
         validate_grammar_rule(
             rule,
-            allowed_node_types=allowed_node_types if isinstance(allowed_node_types, list) else None,
-            allowed_edge_types=allowed_edge_types if isinstance(allowed_edge_types, list) else None,
+            allowed_node_types=contract.allowed_node_types,
+            allowed_edge_types=contract.allowed_edge_types,
             index=index,
         )
     return rules
