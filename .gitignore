@@ -22,5 +22,8 @@ outputs/**/*.csv
 outputs/*.md
 outputs/**/*.md
 outputs/llm_grammar_variant.yaml
+outputs/llm_grammar_variant.invalid.yaml
 outputs/variant_requirements.txt
+outputs/variant_requirements.yaml
+outputs/variant_requirements.json
 !outputs/.gitkeep

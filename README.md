@@ -91,20 +91,25 @@ python -m graph_layout_synth validate-config \
 
 The Claude-facing instruction document for schema-valid YAML variants is `docs/GRAMMAR_CONFIG_SKILLS.md`. Read it before modifying `grammar_rules` or asking an LLM to propose config variants.
 
+Validation reports include a compact `contract_summary` with the derived vocabulary and consistency context, including `room_mix_reachable_ranges` computed from grammar-rule zone counts and per-zone room counts.
+
+### Config Contract
+
+GraphLayoutSynth derives a live config contract from the YAML config. The validator and LLM prompt builder use this contract so allowed node types, edge types, semantic groups, room-mix targets, reachable room-mix ranges, typed accessibility pairs, and grammar-rule context stay synchronized when the config changes. `docs/GRAMMAR_CONFIG_SKILLS.md` describes the generic format; the live contract provides the current config-specific vocabulary.
+
 ## LLM Grammar Variants
 
 The optional `propose-grammar-variant` command asks Claude to propose a complete YAML config variant. Claude does not generate raw graphs, does not overwrite the base config, and does not bypass validation. The generated config is validated before it is saved as the normal output config.
 
-When asking for specific room mixes, state alias and count requirements explicitly. For example, ask Claude to keep `PatientRoom`, `ClinicalSupport`, and `StaffSupport` under separate aliases such as `patient`, `clinical`, and `staff`, and specify target counts or ratios such as 20-30 patient rooms, clinical support at about 25% of patient rooms, and staff support at about 10% of patient rooms.
+When asking for specific room mixes, prefer config-defined `room_mix_targets` and `semantic_node_groups` so the prompt and semantic checks share the same parameters. A separate `--variant-requirements` YAML/JSON file can still be used for run-specific overrides.
 
-For the current patient/support room-mix target, use `docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.txt` as the design-intent file and enable the post-LLM semantic check:
+The grammar-variant prompt includes a machine-readable `Live Config Contract` section derived from the actual base config. If a variant introduces a new node type or edge type, the generated YAML must update every relevant config section consistently.
 
 Prompt-only dry run:
 
 ```bash
 python -m graph_layout_synth propose-grammar-variant \
   --base-config configs/generic_building.yaml \
-  --design-intent-file docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.txt \
   --diversity-report outputs/diversity_report.json \
   --review-summary outputs/review_summary.json \
   --archive-path outputs/final_output_archive.json \
@@ -117,14 +122,80 @@ Live Claude proposal:
 ```bash
 python -m graph_layout_synth propose-grammar-variant \
   --base-config configs/generic_building.yaml \
-  --design-intent-file docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.txt \
   --diversity-report outputs/diversity_report.json \
   --review-summary outputs/review_summary.json \
   --archive-path outputs/final_output_archive.json \
   --output-config outputs/llm_grammar_variant.yaml \
   --rationale-output outputs/llm_grammar_variant_rationale.md \
-  --raw-output outputs/llm_grammar_variant_raw.md \
-  --require-room-mix-targets
+  --raw-output outputs/llm_grammar_variant_raw.md
+```
+
+### LLM Variant Workflow
+
+The CLAUDE-based variant proposal follows this flow (prompt building → Claude call → extract YAML → validate → optional semantic checks → write outputs). See `docs/FLOWCHART.md` for the diagram and a printable Mermaid block.
+
+```mermaid
+flowchart LR
+  CLI[CLI: propose-grammar-variant]
+  PROMPT[Build prompt]
+  BASE[Base config]
+  SKILLS[Grammar skills]
+  REQ[Variant requirements]
+  ASSIST[Grammar variant assistant]
+  LOADENV[Load env]
+  CLAUDE[Claude]
+  RAW[Write raw response]
+  EXTRACT[Extract YAML]
+  VALIDATE[Validate YAML]
+  ROOMMIX_CHECK{Require room-mix targets?}
+  VALIDATE_ROOMMIX[Validate room-mix]
+  WRITE_OK[Write final YAML & rationale]
+  WRITE_INVALID[Write invalid YAML sidecar]
+  DONE[Done]
+
+  PROMPTFILE[outputs/grammar_variant_prompt.md]
+  BASEFILE[configs/generic_building.yaml]
+  SKILLSFILE[docs/GRAMMAR_CONFIG_SKILLS.md]
+  REQFILE[docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.yaml]
+  ASSISTFILE[graph_layout_synth/grammar_variant_assistant.py]
+  ENVFILE[.env.local]
+  RAWFILE[outputs/llm_grammar_variant_raw.md]
+  OUTFILE[outputs/llm_grammar_variant.yaml]
+  RATIONALEFILE[outputs/llm_grammar_variant_rationale.md]
+  INVALIDFILE[outputs/llm_grammar_variant.invalid.yaml]
+
+  CLI --> ASSIST
+  BASEFILE --> BASE
+  SKILLSFILE --> SKILLS
+  REQFILE --> REQ
+  BASE --> PROMPT
+  SKILLS --> PROMPT
+  REQ --> PROMPT
+  ASSIST --> LOADENV
+  ASSIST --> PROMPT
+  ASSIST --> CLAUDE
+  PROMPT --> PROMPTFILE
+  PROMPT --> CLAUDE
+  CLAUDE --> RAW
+  RAW --> EXTRACT
+  EXTRACT --> VALIDATE
+  VALIDATE --> ROOMMIX_CHECK
+  ROOMMIX_CHECK -- yes --> VALIDATE_ROOMMIX
+  VALIDATE_ROOMMIX -- pass --> WRITE_OK
+  VALIDATE_ROOMMIX -- fail --> WRITE_INVALID
+  ROOMMIX_CHECK -- no --> WRITE_OK
+  VALIDATE -- fail --> WRITE_INVALID
+  WRITE_OK --> DONE
+
+  BASE --> BASEFILE
+  SKILLS --> SKILLSFILE
+  REQ --> REQFILE
+  ASSIST --> ASSISTFILE
+  LOADENV --> ENVFILE
+  RAW --> RAWFILE
+  WRITE_OK --> OUTFILE
+  WRITE_OK --> RATIONALEFILE
+  WRITE_INVALID --> INVALIDFILE
 ```
 
 Then validate and run the normal generator:
@@ -142,7 +213,7 @@ python -m graph_layout_synth generate \
   --archive-path outputs/final_output_archive.json
 ```
 
-If Claude returns invalid YAML, a schema-invalid config, or a config that fails an enabled semantic check such as `--require-room-mix-targets`, the CLI saves the invalid YAML as a sidecar such as `outputs/llm_grammar_variant.invalid.yaml` and exits nonzero. Invalid variants should not be used for generation.
+If Claude returns invalid YAML, a schema-invalid config, or a config that fails enabled structured requirements such as room-mix targets, the CLI saves the invalid YAML as a sidecar such as `outputs/llm_grammar_variant.invalid.yaml` and exits nonzero. Invalid variants should not be used for generation.
 
 ## Grammar Rules
 

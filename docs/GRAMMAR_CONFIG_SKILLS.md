@@ -6,7 +6,7 @@ Instructions for Claude or other LLMs that propose GraphLayoutSynth YAML config 
 
 A GraphLayoutSynth config describes how to generate, validate, rank, and visualize stochastic building layout graphs. The config is YAML, and generated variants must be complete files that can be validated before generation.
 
-Do not invent unsupported fields. Creative variants are welcome only when they preserve the current schema.
+Do not invent unsupported fields. Creative variants are welcome only when they preserve the current schema. This document describes the generic grammar/config format. The prompt's live `ConfigContract` section provides the current config-specific node types, edge types, semantic groups, room-mix targets, typed accessibility pairs, and grammar-rule context.
 
 ## Required Top-Level Structure
 
@@ -44,9 +44,25 @@ room_type_counts:
   ClinicalSupport: 1
   StaffSupport: 1
 
+semantic_node_groups:
+  room_like:
+    - PatientRoom
+    - ClinicalSupport
+    - StaffSupport
+  corridor:
+    - Corridor
+  support:
+    - ClinicalSupport
+    - StaffSupport
+
+typed_accessibility_pairs:
+  - source_type: PatientRoom
+    target_type: ClinicalSupport
+    edge_type: door
+
 stochastic:
   min_zone_count: 2
-  max_zone_count: 3
+  max_zone_count: 5
   min_cluster_size: 2
   max_cluster_size: 4
   corridor_pattern_choices:
@@ -72,7 +88,32 @@ visualization:
   unknown_node_color: "#c7c7c7"
 ```
 
-The current required graph settings are `allowed_node_types`, `allowed_edge_types`, `zone_types`, and `room_type_counts`. The current program settings are `random_seed_default`, `generation`, `stochastic`, `validation`, `ranking`, and `visualization`.
+The current required graph settings are `allowed_node_types`, `allowed_edge_types`, `zone_types`, and `room_type_counts`. The current program settings are `random_seed_default`, `generation`, `stochastic`, `validation`, `ranking`, and `visualization`. Optional semantic sections such as `semantic_node_groups`, `room_mix_targets`, and `typed_accessibility_pairs` are consumed through the live config contract when present.
+
+Note: `room_type_counts` at the top level requires fixed integers. To express a variable number (a range) of rooms such as `PatientRoom`, use a `grammar_rules` entry with a `create_nodes` `count` object (`min`/`max`). Example:
+
+```yaml
+grammar_rules:
+  - name: variable_patient_rooms
+    match:
+      type: Zone
+      is_abstract: true
+    action:
+      remove_matched_node: false
+      create_nodes:
+        - alias: room
+          type: PatientRoom
+          count:
+            min: 20
+            max: 50
+          attributes:
+            is_abstract: false
+      create_edges:
+        - source: room
+          target: matched
+          edge_type: door
+          mode: each_to_one
+```
 
 ## Grammar Rule Structure
 
@@ -119,7 +160,7 @@ Current supported node attributes in grammar config are:
 - `zone_type`
 - `is_abstract`
 
-Node `type` values must be listed in `allowed_node_types` when that list is present. Typical current types are `BuildingFloor`, `Zone`, `Corridor`, `PatientRoom`, `ClinicalSupport`, and `StaffSupport`.
+Node `type` values must be listed in `allowed_node_types` when that list is present. Use the prompt's live config contract for the current allowed vocabulary; names such as `BuildingFloor`, `Zone`, `Corridor`, `PatientRoom`, `ClinicalSupport`, and `StaffSupport` are examples from the default config.
 
 ## Edge Attributes
 

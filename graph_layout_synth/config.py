@@ -143,6 +143,7 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
     """Validate a raw config dictionary and return a typed config."""
     if not isinstance(config, dict):
         raise ConfigError("Config must be a mapping.")
+    from graph_layout_synth.config_contract import build_config_contract
     from graph_layout_synth.rule_schema import RuleSchemaError, load_grammar_rules
 
     project = _require_mapping(config, "project")
@@ -206,6 +207,10 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
             + ", ".join(sorted(unknown_support_types))
             + "."
         )
+
+    contract = build_config_contract(config)
+    if contract.errors:
+        raise ConfigError("Config contract validation failed: " + "; ".join(contract.errors))
 
     try:
         grammar_rules = load_grammar_rules(config)

@@ -270,6 +270,7 @@ def build_candidate_review_summary(
     candidate_report: dict | None = None,
     ranking_entry: dict | None = None,
     artifact_paths: dict | None = None,
+    typed_accessibility_pairs: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Build a compact JSON-serializable summary for one candidate."""
     artifact_paths = artifact_paths or {}
@@ -283,7 +284,7 @@ def build_candidate_review_summary(
     graph_degree_summary = degree_summary(graph)
     wall_summary = wall_adjacency_summary(graph)
     support_summary = support_type_summary(graph)
-    accessibility_summary = typed_accessibility_summary(graph)
+    accessibility_summary = typed_accessibility_summary(graph, type_pairs=typed_accessibility_pairs)
 
     return {
         "candidate_id": candidate_id,

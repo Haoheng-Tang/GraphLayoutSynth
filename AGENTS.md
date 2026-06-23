@@ -13,6 +13,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - Python package: `graph_layout_synth`
 - Graph backend: NetworkX
 - Config: YAML, default `configs/generic_building.yaml`
+- Config-contract layer: `ConfigContract` derived from the active YAML config.
 - CLI commands:
   - `python -m graph_layout_synth generate`
   - `python -m graph_layout_synth validate-config`
@@ -20,6 +21,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
   - `python -m graph_layout_synth archive-final`
   - `python -m graph_layout_synth evaluate-llm`
 - Generation uses a seed graph and stochastic YAML `grammar_rules` when present.
+- Validators, grammar-variant prompts, semantic room-mix checks, and typed accessibility context should consume the live config contract rather than duplicating vocabulary assumptions.
 - Grammar rules support simple exact node-attribute matching, created-node aliases, fixed counts, min/max counts, choice sampling, matched-node updates, optional matched-node removal, and edge modes `one_to_one`, `each_to_one`, `one_to_each`, `adjacent_pairs`.
 - Rule-application tracing records applied rule order, matched nodes, sampled parameters, created nodes/edges, and removed nodes.
 - Candidate review summaries provide compact human/RAG-oriented graph summaries with artifact pointers, separated support-type counts/ratios, wall-adjacency proxy metrics with node references, and typed accessibility summaries.
@@ -33,6 +35,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 ## Key Modules
 
 - `config.py`: loads and validates YAML config; defines config dataclasses.
+- `config_contract.py`: derives allowed vocabularies, semantic groups, room-mix targets, reachable room-mix ranges, typed accessibility pairs, and grammar-rule context from raw YAML configs.
 - `config_validator.py`: user-facing config validation reports for CLI/tests.
 - `rule_schema.py`: validates and applies executable YAML grammar rules.
 - `tracing.py`: trace event dataclass, trace JSON/markdown export, and compact trace metadata helpers.
@@ -125,7 +128,7 @@ Prompt-only grammar variant dry run:
 ```bash
 python -m graph_layout_synth propose-grammar-variant \
   --base-config configs/generic_building.yaml \
-  --design-intent-file docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.txt \
+  --variant-requirements docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.yaml \
   --write-prompt outputs/grammar_variant_prompt.md \
   --no-call
 ```
@@ -182,12 +185,16 @@ Typical generated files:
 - Read `docs/GRAMMAR_CONFIG_SKILLS.md` before modifying or generating YAML grammar configs.
 - Read `docs/GRAMMAR_CONFIG_SKILLS.md` before changing grammar config generation logic.
 - Do not invent unsupported config or grammar-rule fields.
+- Use `ConfigContract` instead of duplicating config assumptions in validators, prompt builders, semantic checks, or tests.
+- Validators and LLM prompt builders should derive node/edge vocabulary from the current config. Do not hardcode room types except as documented fallback examples.
+- Keep `room_mix_targets.expected_room_type_counts` inside `ConfigContract.room_mix_reachable_ranges`; these ranges are derived from grammar-rule zone counts and per-zone room counts.
 - Run `validate-config` after changing any config.
+- After changing config schema or contract-derived fields, run `validate-config` and tests.
 - LLM-generated YAML must be validated before it is used for generation.
 - Invalid LLM-generated YAML should be saved separately, such as `*.invalid.yaml`, and must not be used for generation.
 - Do not overwrite baseline configs with LLM-generated variants; save variants under `outputs/` or a dedicated variants directory.
-- When asking Claude for room-mix changes, specify concrete alias and count constraints. Prefer separate aliases such as `patient`, `clinical`, and `staff` when `PatientRoom`, `ClinicalSupport`, and `StaffSupport` need independent counts or edges.
-- Use `--require-room-mix-targets` for the current 20-30 `PatientRoom`, ~25% `ClinicalSupport`, and ~10% `StaffSupport` target so schema-valid but semantically wrong LLM YAML is rejected.
+- When asking Claude for room-mix changes, prefer config-defined `room_mix_targets` and `semantic_node_groups`; use a structured YAML/JSON file through `--variant-requirements` only for run-specific overrides.
+- The current config contract drives prompt text and semantic room-mix validation parameters. Keep `docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.yaml` aligned only if it is still used as an override artifact.
 
 ## Coding Style
 

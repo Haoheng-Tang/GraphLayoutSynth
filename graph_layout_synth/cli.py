@@ -17,6 +17,7 @@ from graph_layout_synth.archive import (
     resolve_review_summary_from_selection,
 )
 from graph_layout_synth.config import DEFAULT_CONFIG_PATH, load_config
+from graph_layout_synth.config_contract import build_config_contract
 from graph_layout_synth.config_validator import export_config_validation_report, validate_config_file
 from graph_layout_synth.diversity import (
     DEFAULT_LOW_NOVELTY_THRESHOLD,
@@ -38,9 +39,13 @@ from graph_layout_synth.grammar_variant_assistant import (
     extract_rationale_from_llm_response,
     extract_yaml_from_llm_response,
     invalid_variant_path,
+    load_variant_requirements,
     propose_grammar_variant_with_claude,
+    room_mix_kwargs_from_contract,
+    room_mix_kwargs_from_requirements,
     validate_room_mix_targets,
     validate_variant_yaml_text,
+    variant_requirements_to_design_intent,
     write_variant_outputs,
 )
 from graph_layout_synth.llm_evaluator import LlmEvaluationError, evaluate_candidates_with_llm
@@ -110,6 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Use Claude to propose a validated YAML grammar/config variant.",
     )
     propose_variant.add_argument("--base-config", type=Path, default=DEFAULT_CONFIG_PATH)
+    propose_variant.add_argument("--variant-requirements", type=Path, default=None)
     propose_variant.add_argument("--design-intent", default=None)
     propose_variant.add_argument("--design-intent-file", type=Path, default=None)
     propose_variant.add_argument("--diversity-report", type=Path, default=None)
@@ -144,6 +150,8 @@ def build_parser() -> argparse.ArgumentParser:
 def run_generate(args: argparse.Namespace) -> None:
     """Generate candidates, export the best one, and print a short summary."""
     config = load_config(args.config)
+    contract = build_config_contract(_read_yaml_mapping(args.config))
+    typed_accessibility_pairs = contract.typed_accessibility_type_pairs(edge_type="door") or None
     num_candidates = args.num_candidates or config.generation.num_candidates
     seed = args.seed if args.seed is not None else config.random_seed_default
 
@@ -227,6 +235,7 @@ def run_generate(args: argparse.Namespace) -> None:
             candidate_report=candidate_report,
             ranking_entry=ranking_entry,
             artifact_paths=artifacts,
+            typed_accessibility_pairs=typed_accessibility_pairs,
         )
         export_review_summary_json(candidate_summary, artifacts["review_summary_path"])
         candidate_summaries.append(candidate_summary)
@@ -440,16 +449,44 @@ def _combined_design_intent(inline_intent: str | None, intent_file: Path | None)
     return "\n\n".join(part for part in parts if part) or None
 
 
+def _merged_design_intent(
+    requirements_design_intent: str | None,
+    inline_intent: str | None,
+    intent_file: Path | None,
+) -> str | None:
+    parts = []
+    if requirements_design_intent:
+        parts.append(requirements_design_intent)
+    combined_freeform = _combined_design_intent(inline_intent, intent_file)
+    if combined_freeform:
+        parts.append(combined_freeform)
+    return "\n\n".join(parts) or None
+
+
 def run_propose_grammar_variant(args: argparse.Namespace) -> None:
     """Use Claude to propose a validated YAML config variant."""
     try:
         base_config = _read_yaml_mapping(args.base_config)
         validate_variant_yaml_text(yaml.safe_dump(base_config, sort_keys=False))
+        base_contract = build_config_contract(base_config)
         grammar_skills_text = Path("docs/GRAMMAR_CONFIG_SKILLS.md").read_text(encoding="utf-8")
+        variant_requirements = (
+            load_variant_requirements(args.variant_requirements, contract=base_contract)
+            if args.variant_requirements
+            else None
+        )
+        requirements_design_intent = variant_requirements_to_design_intent(variant_requirements, contract=base_contract)
+        requirements_room_mix_kwargs = room_mix_kwargs_from_requirements(variant_requirements, contract=base_contract)
+        contract_room_mix_kwargs = room_mix_kwargs_from_contract(base_contract)
+        effective_room_mix_kwargs = requirements_room_mix_kwargs or contract_room_mix_kwargs
         prompt = build_grammar_variant_prompt(
             base_config,
             grammar_skills_text,
-            design_intent=_combined_design_intent(args.design_intent, args.design_intent_file),
+            design_intent=_merged_design_intent(
+                requirements_design_intent,
+                args.design_intent,
+                args.design_intent_file,
+            ),
             diversity_report=_read_optional_json(args.diversity_report),
             review_summary=_read_optional_json(args.review_summary),
             archive=_read_optional_json(args.archive_path),
@@ -481,14 +518,17 @@ def run_propose_grammar_variant(args: argparse.Namespace) -> None:
             print("Extracting and validating YAML config variant.")
             yaml_text = extract_yaml_from_llm_response(response_text)
             raw_variant_config = validate_variant_yaml_text(yaml_text)
-            if args.require_room_mix_targets:
+            if args.require_room_mix_targets or effective_room_mix_kwargs:
+                room_mix_kwargs = effective_room_mix_kwargs or {
+                    "patient_total_min": args.patient_room_total_min,
+                    "patient_total_max": args.patient_room_total_max,
+                    "clinical_ratio": args.clinical_support_ratio,
+                    "staff_ratio": args.staff_support_ratio,
+                    "ratio_tolerance": args.room_mix_ratio_tolerance,
+                }
                 room_mix_report = validate_room_mix_targets(
                     raw_variant_config,
-                    patient_total_min=args.patient_room_total_min,
-                    patient_total_max=args.patient_room_total_max,
-                    clinical_ratio=args.clinical_support_ratio,
-                    staff_ratio=args.staff_support_ratio,
-                    ratio_tolerance=args.room_mix_ratio_tolerance,
+                    **room_mix_kwargs,
                 )
                 print(
                     "Room-mix target check passed: "
