@@ -45,8 +45,8 @@ room_type_counts:
   StaffSupport: 1
 
 stochastic:
-  min_zone_count: 2
-  max_zone_count: 3
+  min_zone_count: 6
+  max_zone_count: 5
   min_cluster_size: 2
   max_cluster_size: 4
   corridor_pattern_choices:
@@ -73,6 +73,31 @@ visualization:
 ```
 
 The current required graph settings are `allowed_node_types`, `allowed_edge_types`, `zone_types`, and `room_type_counts`. The current program settings are `random_seed_default`, `generation`, `stochastic`, `validation`, `ranking`, and `visualization`.
+
+Note: `room_type_counts` at the top level requires fixed integers. To express a variable number (a range) of rooms such as `PatientRoom`, use a `grammar_rules` entry with a `create_nodes` `count` object (`min`/`max`). Example:
+
+```yaml
+grammar_rules:
+  - name: variable_patient_rooms
+    match:
+      type: Zone
+      is_abstract: true
+    action:
+      remove_matched_node: false
+      create_nodes:
+        - alias: room
+          type: PatientRoom
+          count:
+            min: 20
+            max: 50
+          attributes:
+            is_abstract: false
+      create_edges:
+        - source: room
+          target: matched
+          edge_type: door
+          mode: each_to_one
+```
 
 ## Grammar Rule Structure
 

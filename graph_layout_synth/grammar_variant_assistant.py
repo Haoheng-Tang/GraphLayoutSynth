@@ -24,12 +24,219 @@ GRAMMAR_VARIANT_SYSTEM_PROMPT = (
     "The deterministic validator and generator remain the source of truth."
 )
 
+VARIANT_REQUIREMENTS_KEYS = {"version", "design_intent", "room_mix_targets"}
+ROOM_MIX_TARGET_KEYS = {
+    "enabled",
+    "patient_alias",
+    "clinical_alias",
+    "staff_alias",
+    "patient_total_min",
+    "patient_total_max",
+    "clinical_ratio",
+    "staff_ratio",
+    "ratio_tolerance",
+    "suggested_per_zone_counts",
+    "expected_room_type_counts",
+}
+ROOM_MIX_COUNT_KEYS = {"patient", "clinical", "staff"}
+ROOM_MIX_ROOM_TYPE_KEYS = {"PatientRoom", "ClinicalSupport", "StaffSupport"}
+
 
 def _compact_json(data: Any, *, max_chars: int = 12000) -> str:
     text = json.dumps(data, indent=2, sort_keys=True)
     if len(text) <= max_chars:
         return text
     return text[:max_chars] + "\n... [truncated]"
+
+
+def _unknown_mapping_keys(data: dict[str, Any], allowed_keys: set[str]) -> list[str]:
+    return sorted(key for key in data if key not in allowed_keys)
+
+
+def _require_positive_int(data: dict[str, Any], key: str, path: str) -> int:
+    value = data.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise GrammarVariantError(f"{path}.{key} must be a positive integer.")
+    return value
+
+
+def _require_ratio(data: dict[str, Any], key: str, path: str) -> float:
+    value = data.get(key)
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+        raise GrammarVariantError(f"{path}.{key} must be a non-negative number.")
+    return float(value)
+
+
+def _validate_count_parameter(value: Any, path: str) -> None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        if value < 1:
+            raise GrammarVariantError(f"{path} must be a positive integer.")
+        return
+    if isinstance(value, dict):
+        unknown = _unknown_mapping_keys(value, {"min", "max"})
+        if unknown:
+            raise GrammarVariantError(f"{path} has unsupported field(s): {', '.join(unknown)}.")
+        minimum = _require_positive_int(value, "min", path)
+        maximum = _require_positive_int(value, "max", path)
+        if minimum > maximum:
+            raise GrammarVariantError(f"{path}.min must be less than or equal to max.")
+        return
+    raise GrammarVariantError(f"{path} must be a positive integer or min/max mapping.")
+
+
+def validate_variant_requirements(requirements: dict[str, Any]) -> dict[str, Any]:
+    """Validate structured variant requirements and return a normalized copy."""
+    if not isinstance(requirements, dict):
+        raise GrammarVariantError("Variant requirements must be a mapping.")
+    unknown = _unknown_mapping_keys(requirements, VARIANT_REQUIREMENTS_KEYS)
+    if unknown:
+        raise GrammarVariantError(f"Variant requirements have unsupported field(s): {', '.join(unknown)}.")
+
+    version = requirements.get("version")
+    if version != 1:
+        raise GrammarVariantError("Variant requirements field 'version' must be 1.")
+    design_intent = requirements.get("design_intent", "")
+    if design_intent is not None and not isinstance(design_intent, str):
+        raise GrammarVariantError("Variant requirements field 'design_intent' must be a string.")
+
+    normalized: dict[str, Any] = {"version": 1, "design_intent": design_intent or ""}
+    room_mix = requirements.get("room_mix_targets")
+    if room_mix is None:
+        return normalized
+    if not isinstance(room_mix, dict):
+        raise GrammarVariantError("Variant requirements field 'room_mix_targets' must be a mapping.")
+    unknown_room_mix = _unknown_mapping_keys(room_mix, ROOM_MIX_TARGET_KEYS)
+    if unknown_room_mix:
+        raise GrammarVariantError(
+            "Variant requirements field 'room_mix_targets' has unsupported field(s): "
+            + ", ".join(unknown_room_mix)
+            + "."
+        )
+
+    enabled = room_mix.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise GrammarVariantError("room_mix_targets.enabled must be true or false.")
+    normalized_room_mix: dict[str, Any] = {"enabled": enabled}
+    if not enabled:
+        normalized["room_mix_targets"] = normalized_room_mix
+        return normalized
+
+    for key in ("patient_alias", "clinical_alias", "staff_alias"):
+        value = room_mix.get(key)
+        if not isinstance(value, str) or not value:
+            raise GrammarVariantError(f"room_mix_targets.{key} must be a non-empty string.")
+        normalized_room_mix[key] = value
+
+    patient_total_min = _require_positive_int(room_mix, "patient_total_min", "room_mix_targets")
+    patient_total_max = _require_positive_int(room_mix, "patient_total_max", "room_mix_targets")
+    if patient_total_min > patient_total_max:
+        raise GrammarVariantError("room_mix_targets.patient_total_min must be less than or equal to patient_total_max.")
+    normalized_room_mix["patient_total_min"] = patient_total_min
+    normalized_room_mix["patient_total_max"] = patient_total_max
+    normalized_room_mix["clinical_ratio"] = _require_ratio(room_mix, "clinical_ratio", "room_mix_targets")
+    normalized_room_mix["staff_ratio"] = _require_ratio(room_mix, "staff_ratio", "room_mix_targets")
+    normalized_room_mix["ratio_tolerance"] = _require_ratio(room_mix, "ratio_tolerance", "room_mix_targets")
+
+    suggested_counts = room_mix.get("suggested_per_zone_counts", {})
+    if suggested_counts:
+        if not isinstance(suggested_counts, dict):
+            raise GrammarVariantError("room_mix_targets.suggested_per_zone_counts must be a mapping.")
+        unknown_counts = _unknown_mapping_keys(suggested_counts, ROOM_MIX_COUNT_KEYS)
+        if unknown_counts:
+            raise GrammarVariantError(
+                "room_mix_targets.suggested_per_zone_counts has unsupported field(s): "
+                + ", ".join(unknown_counts)
+                + "."
+            )
+        for key, value in suggested_counts.items():
+            _validate_count_parameter(value, f"room_mix_targets.suggested_per_zone_counts.{key}")
+    normalized_room_mix["suggested_per_zone_counts"] = suggested_counts
+
+    expected_counts = room_mix.get("expected_room_type_counts", {})
+    if expected_counts:
+        if not isinstance(expected_counts, dict):
+            raise GrammarVariantError("room_mix_targets.expected_room_type_counts must be a mapping.")
+        unknown_room_types = _unknown_mapping_keys(expected_counts, ROOM_MIX_ROOM_TYPE_KEYS)
+        if unknown_room_types:
+            raise GrammarVariantError(
+                "room_mix_targets.expected_room_type_counts has unsupported field(s): "
+                + ", ".join(unknown_room_types)
+                + "."
+            )
+        for key in ROOM_MIX_ROOM_TYPE_KEYS:
+            if key in expected_counts:
+                _require_positive_int(expected_counts, key, "room_mix_targets.expected_room_type_counts")
+    normalized_room_mix["expected_room_type_counts"] = expected_counts
+
+    normalized["room_mix_targets"] = normalized_room_mix
+    return normalized
+
+
+def load_variant_requirements(path: str | Path) -> dict[str, Any]:
+    """Load YAML/JSON variant requirements and validate their strict structure."""
+    requirements_path = Path(path)
+    try:
+        raw_requirements = yaml.safe_load(requirements_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise GrammarVariantError(f"Variant requirements file not found: {requirements_path}") from exc
+    except yaml.YAMLError as exc:
+        raise GrammarVariantError(f"Variant requirements file is not valid YAML/JSON: {requirements_path}") from exc
+    return validate_variant_requirements(raw_requirements)
+
+
+def room_mix_kwargs_from_requirements(requirements: dict[str, Any] | None) -> dict[str, Any]:
+    """Extract validate_room_mix_targets keyword arguments from requirements."""
+    if not requirements:
+        return {}
+    room_mix = requirements.get("room_mix_targets")
+    if not isinstance(room_mix, dict) or not room_mix.get("enabled", False):
+        return {}
+    return {
+        "patient_total_min": room_mix["patient_total_min"],
+        "patient_total_max": room_mix["patient_total_max"],
+        "clinical_ratio": room_mix["clinical_ratio"],
+        "staff_ratio": room_mix["staff_ratio"],
+        "ratio_tolerance": room_mix["ratio_tolerance"],
+        "patient_alias": room_mix["patient_alias"],
+        "clinical_alias": room_mix["clinical_alias"],
+        "staff_alias": room_mix["staff_alias"],
+    }
+
+
+def variant_requirements_to_design_intent(requirements: dict[str, Any] | None) -> str | None:
+    """Render structured variant requirements into prompt text for Claude."""
+    if not requirements:
+        return None
+    parts = []
+    design_intent = requirements.get("design_intent")
+    if design_intent:
+        parts.append(str(design_intent).strip())
+
+    room_mix = requirements.get("room_mix_targets")
+    if isinstance(room_mix, dict) and room_mix.get("enabled", False):
+        parts.append(
+            "Structured room-mix requirements:\n"
+            f"- Use separate aliases `{room_mix['patient_alias']}`, `{room_mix['clinical_alias']}`, "
+            f"and `{room_mix['staff_alias']}` for PatientRoom, ClinicalSupport, and StaffSupport.\n"
+            f"- Generate {room_mix['patient_total_min']}-{room_mix['patient_total_max']} total PatientRoom nodes.\n"
+            f"- Generate ClinicalSupport at about {room_mix['clinical_ratio']:.0%} of PatientRoom count.\n"
+            f"- Generate StaffSupport at about {room_mix['staff_ratio']:.0%} of PatientRoom count.\n"
+            f"- Ratio tolerance for semantic validation is {room_mix['ratio_tolerance']:.0%}.\n"
+            "- Do not group PatientRoom, ClinicalSupport, or StaffSupport under a shared room/support alias."
+        )
+        suggested_counts = room_mix.get("suggested_per_zone_counts")
+        if suggested_counts:
+            parts.append(
+                "Suggested per-zone create_nodes counts:\n"
+                + yaml.safe_dump(suggested_counts, sort_keys=True).strip()
+            )
+        expected_counts = room_mix.get("expected_room_type_counts")
+        if expected_counts:
+            parts.append(
+                "Update top-level room_type_counts to align with:\n"
+                + yaml.safe_dump(expected_counts, sort_keys=True).strip()
+            )
+    return "\n\n".join(parts).strip() or None
 
 
 def build_grammar_variant_prompt(
@@ -357,6 +564,7 @@ def propose_grammar_variant(
     base_config: dict,
     grammar_skills_text: str,
     output_config_path: str | Path,
+    variant_requirements: dict[str, Any] | None = None,
     design_intent: str | None = None,
     diversity_report: dict | None = None,
     review_summary: dict | None = None,
@@ -374,10 +582,23 @@ def propose_grammar_variant(
     ratio_tolerance: float = 0.08,
 ) -> dict[str, Any]:
     """Call Claude, validate its YAML, and write variant artifacts."""
+    normalized_requirements = validate_variant_requirements(variant_requirements) if variant_requirements else None
+    requirements_design_intent = variant_requirements_to_design_intent(normalized_requirements)
+    design_intent_parts = [part for part in (requirements_design_intent, design_intent) if part]
+    merged_design_intent = "\n\n".join(design_intent_parts) or None
+    requirements_room_mix_kwargs = room_mix_kwargs_from_requirements(normalized_requirements)
+    if requirements_room_mix_kwargs:
+        require_room_mix_targets = True
+        patient_total_min = requirements_room_mix_kwargs["patient_total_min"]
+        patient_total_max = requirements_room_mix_kwargs["patient_total_max"]
+        clinical_ratio = requirements_room_mix_kwargs["clinical_ratio"]
+        staff_ratio = requirements_room_mix_kwargs["staff_ratio"]
+        ratio_tolerance = requirements_room_mix_kwargs["ratio_tolerance"]
+
     prompt = build_grammar_variant_prompt(
         base_config,
         grammar_skills_text,
-        design_intent=design_intent,
+        design_intent=merged_design_intent,
         diversity_report=diversity_report,
         review_summary=review_summary,
         archive=archive,
@@ -402,6 +623,9 @@ def propose_grammar_variant(
                 clinical_ratio=clinical_ratio,
                 staff_ratio=staff_ratio,
                 ratio_tolerance=ratio_tolerance,
+                patient_alias=requirements_room_mix_kwargs.get("patient_alias", "patient"),
+                clinical_alias=requirements_room_mix_kwargs.get("clinical_alias", "clinical"),
+                staff_alias=requirements_room_mix_kwargs.get("staff_alias", "staff"),
             )
     except GrammarVariantError:
         invalid_path = invalid_variant_path(output_config_path)

@@ -8,9 +8,13 @@ from graph_layout_synth.grammar_variant_assistant import (
     GrammarVariantError,
     build_grammar_variant_prompt,
     extract_yaml_from_llm_response,
+    load_variant_requirements,
     propose_grammar_variant,
     propose_grammar_variant_with_claude,
+    room_mix_kwargs_from_requirements,
+    validate_variant_requirements,
     validate_room_mix_targets,
+    variant_requirements_to_design_intent,
 )
 
 
@@ -70,6 +74,34 @@ def _write_yaml(path, data):
     return path
 
 
+def _variant_requirements():
+    return {
+        "version": 1,
+        "design_intent": "Use explicit patient/support room-mix targets.",
+        "room_mix_targets": {
+            "enabled": True,
+            "patient_alias": "patient",
+            "clinical_alias": "clinical",
+            "staff_alias": "staff",
+            "patient_total_min": 20,
+            "patient_total_max": 30,
+            "clinical_ratio": 0.25,
+            "staff_ratio": 0.10,
+            "ratio_tolerance": 0.08,
+            "suggested_per_zone_counts": {
+                "patient": {"min": 7, "max": 10},
+                "clinical": {"min": 2, "max": 3},
+                "staff": 1,
+            },
+            "expected_room_type_counts": {
+                "PatientRoom": 24,
+                "ClinicalSupport": 6,
+                "StaffSupport": 3,
+            },
+        },
+    }
+
+
 def _room_mix_config():
     config = _base_config()
     config["room_type_counts"] = {"PatientRoom": 24, "ClinicalSupport": 6, "StaffSupport": 3}
@@ -121,6 +153,27 @@ def _room_mix_config():
         },
     ]
     return config
+
+
+def test_structured_variant_requirements_render_prompt_and_room_mix_kwargs(tmp_path):
+    requirements_path = _write_yaml(tmp_path / "requirements.yaml", _variant_requirements())
+    requirements = load_variant_requirements(requirements_path)
+    design_intent = variant_requirements_to_design_intent(requirements)
+    kwargs = room_mix_kwargs_from_requirements(requirements)
+
+    assert "20-30 total PatientRoom" in design_intent
+    assert "patient" in design_intent
+    assert kwargs["patient_total_min"] == 20
+    assert kwargs["clinical_ratio"] == 0.25
+    assert kwargs["patient_alias"] == "patient"
+
+
+def test_structured_variant_requirements_reject_unknown_fields():
+    requirements = _variant_requirements()
+    requirements["room_mix_targets"]["patient_totel_min"] = 20
+
+    with pytest.raises(GrammarVariantError, match="unsupported field"):
+        validate_variant_requirements(requirements)
 
 
 def test_prompt_builder_includes_skills_base_config_intent_and_reports():
@@ -189,6 +242,34 @@ def test_dry_run_prompt_writing_does_not_call_claude(tmp_path, monkeypatch):
 
     assert prompt_path.exists()
     assert "Vary the grammar" in prompt_path.read_text(encoding="utf-8")
+
+
+def test_cli_no_call_with_structured_requirements_writes_prompt(tmp_path, monkeypatch):
+    config_path = _write_yaml(tmp_path / "config.yaml", _base_config())
+    requirements_path = _write_yaml(tmp_path / "requirements.yaml", _variant_requirements())
+    prompt_path = tmp_path / "prompt.md"
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("Claude should not be called in no-call mode")
+
+    monkeypatch.setattr(cli, "propose_grammar_variant_with_claude", fail_if_called)
+
+    main(
+        [
+            "propose-grammar-variant",
+            "--base-config",
+            str(config_path),
+            "--variant-requirements",
+            str(requirements_path),
+            "--write-prompt",
+            str(prompt_path),
+            "--no-call",
+        ]
+    )
+
+    prompt_text = prompt_path.read_text(encoding="utf-8")
+    assert "Structured room-mix requirements" in prompt_text
+    assert "20-30 total PatientRoom" in prompt_text
 
 
 def test_generated_yaml_validation_is_called(tmp_path, monkeypatch):

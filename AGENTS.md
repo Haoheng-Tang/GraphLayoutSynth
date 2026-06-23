@@ -125,7 +125,7 @@ Prompt-only grammar variant dry run:
 ```bash
 python -m graph_layout_synth propose-grammar-variant \
   --base-config configs/generic_building.yaml \
-  --design-intent-file docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.txt \
+  --variant-requirements docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.yaml \
   --write-prompt outputs/grammar_variant_prompt.md \
   --no-call
 ```
@@ -186,8 +186,8 @@ Typical generated files:
 - LLM-generated YAML must be validated before it is used for generation.
 - Invalid LLM-generated YAML should be saved separately, such as `*.invalid.yaml`, and must not be used for generation.
 - Do not overwrite baseline configs with LLM-generated variants; save variants under `outputs/` or a dedicated variants directory.
-- When asking Claude for room-mix changes, specify concrete alias and count constraints. Prefer separate aliases such as `patient`, `clinical`, and `staff` when `PatientRoom`, `ClinicalSupport`, and `StaffSupport` need independent counts or edges.
-- Use `--require-room-mix-targets` for the current 20-30 `PatientRoom`, ~25% `ClinicalSupport`, and ~10% `StaffSupport` target so schema-valid but semantically wrong LLM YAML is rejected.
+- When asking Claude for room-mix changes, use a structured YAML/JSON requirements file through `--variant-requirements`. Prefer separate aliases such as `patient`, `clinical`, and `staff` when `PatientRoom`, `ClinicalSupport`, and `StaffSupport` need independent counts or edges.
+- The current structured requirements file is `docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.yaml`; it drives both prompt text and semantic room-mix validation parameters.
 
 ## Coding Style
 

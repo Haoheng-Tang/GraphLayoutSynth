@@ -1,0 +1,26 @@
+version: 1
+design_intent: >-
+  Generate more varied layouts with better typed accessibility and lower
+  wall-adjacency risk while using an explicit patient/support room mix.
+room_mix_targets:
+  enabled: true
+  patient_alias: patient
+  clinical_alias: clinical
+  staff_alias: staff
+  patient_total_min: 20
+  patient_total_max: 30
+  clinical_ratio: 0.25
+  staff_ratio: 0.10
+  ratio_tolerance: 0.08
+  suggested_per_zone_counts:
+    patient:
+      min: 7
+      max: 10
+    clinical:
+      min: 2
+      max: 3
+    staff: 1
+  expected_room_type_counts:
+    PatientRoom: 24
+    ClinicalSupport: 6
+    StaffSupport: 3
