@@ -44,6 +44,8 @@ python -m pip install -e ".[dev]"
 
 Core dependencies are NetworkX, PyYAML, and Matplotlib. Development installs also include pytest.
 
+FastAPI and Uvicorn are included for the optional NextRoomPredictor HTTP integration described below.
+
 Install optional Claude support only when you need LLM report interpretation or LLM grammar-variant proposal:
 
 ```bash
@@ -57,6 +59,25 @@ ANTHROPIC_API_KEY=your_api_key_here
 ```
 
 Do not commit `.env.local`. The committed `.env.example` contains only an empty placeholder.
+
+## NextRoomPredictor HTTP API
+
+Start the local API after installing the project:
+
+```bash
+python -m uvicorn server.main:app --reload --port 8000
+```
+
+The service exposes:
+
+- `GET /health`
+- `POST /suggest-next-room`
+
+NextRoomPredictor should call the suggestion endpoint only when the user clicks a `+` handle. The v1 API predicts semantic/topological neighbor room types; it does not accept a required `side` or direction and does not return geometry. The frontend keeps responsibility for clicked-side placement and overlap validation.
+
+The default allowed browser origin is `http://localhost:5173`. Add comma-separated local origins with `NEXT_ROOM_ALLOWED_ORIGINS`.
+
+See [the NextRoomPredictor integration guide](docs/integration/nextroompredictor-api.md) for the request contract, curl example, response, validation behavior, and current generator-adapter boundary.
 
 ## Configuration
 
