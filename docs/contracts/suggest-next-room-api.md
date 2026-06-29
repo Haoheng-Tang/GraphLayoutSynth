@@ -371,17 +371,65 @@ An empty result is successful:
 
 Use local fallback suggestions when the returned list is empty.
 
-## Aggregation rule
+## Semantic anchor matching
 
-The backend should count new candidate neighbors of `anchorRoomId`, not existing neighbors already present in the input floorplan.
+A generated graph may contain many nodes with the same room type. The backend
+does not select one using internal node order, modulo sampling, randomness, or
+graph traversal order.
 
-For each generated graph:
+Instead, it represents the frontend anchor's known one-hop neighborhood as a
+multiset. Each key contains:
 
-1. Locate the anchor node corresponding to `anchorRoomId`.
-2. Find nodes adjacent to the anchor in the generated graph.
-3. Exclude neighbors that already exist in the input floorplan.
-4. Count remaining neighbor room types.
-5. Aggregate counts across samples.
+```text
+(neighbor room type, edge type)
+```
+
+The value is the number of neighbors with that relation. Generated candidate
+nodes receive the same signature.
+
+A generated node is a semantic anchor match if and only if:
+
+1. Its room type equals the frontend anchor room type.
+2. For every relation in the frontend signature:
+
+   ```text
+   generated signature count >= frontend required count
+   ```
+
+This is strict one-way coverage, not equality. A generated candidate may have
+additional neighbors and a higher degree. Extra generated neighbors are
+allowed and are not penalized.
+
+For example, a frontend `PatientRoom` with:
+
+* one `Corridor` neighbor through a `door`
+* two `PatientRoom` neighbors through `wall` edges
+
+requires a generated `PatientRoom` with at least those counts. A generated
+`Corridor` neighbor through a `wall` cannot satisfy the required
+`Corridor::door` relation.
+
+Multiset counts matter: one `PatientRoom::wall` relation cannot cover a
+requirement for two. If the frontend anchor has no known neighbors, every
+generated node with the same room type matches.
+
+The matching helper returns all valid nodes from each generated graph. It does
+not rank, score, sort, or choose among them. It does not use BFS, DFS, degree
+equality, graph edit distance, fuzzy matching, or top-k selection because this
+is only a one-hop containment check.
+
+### Current endpoint integration
+
+This matching branch does not aggregate next-room candidates across multiple
+semantic matches. The endpoint keeps its public response shape stable and
+projects a generated neighborhood only when a sample has exactly one semantic
+match. Samples with zero or multiple matches contribute no projected
+neighbors, avoiding an arbitrary selection. Aggregation across all matching
+nodes is deferred to a later branch.
+
+For uniquely matched samples, the existing downstream predictor excludes
+neighbor node identities already present in the input graph and aggregates
+the remaining room types across samples.
 
 ## Important behavior
 

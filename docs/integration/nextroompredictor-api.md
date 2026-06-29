@@ -137,8 +137,51 @@ frontend room ID <-> internal graph node ID
 
 Geometry, rotation, room type, edge type, and optional existing-edge side are copied into the internal graph. The prediction response contains room types only and never exposes an internal node ID.
 
-## Current sampling boundary
+## Semantic anchor matching boundary
 
-The current GraphLayoutSynth grammar starts from its own abstract seed and cannot yet rewrite an arbitrary concrete partial floorplan. The default sampler isolates this limitation: it runs the existing candidate generator, finds a generated node with the anchor's room type, and projects that node's one-hop neighborhood onto a copy of the incoming graph.
+The current GraphLayoutSynth grammar starts from its own abstract seed and
+cannot yet rewrite an arbitrary concrete partial floorplan. Generated graphs
+can also contain many nodes with the same room type, so room type alone is not
+enough to select an anchor.
 
-This boundary is intentionally replaceable. A future true conditional generator can implement the same sampler interface without changing the HTTP contract, ID adapter, aggregation logic, or frontend.
+For each generated graph, GraphLayoutSynth builds one-hop neighbor multisets
+whose keys are:
+
+```text
+(neighbor room type, edge type)
+```
+
+A generated node matches the frontend anchor only when:
+
+1. Its room type equals the frontend anchor's room type.
+2. Its one-hop signature covers every count in the frontend anchor signature.
+
+This is strict one-way containment:
+
+```text
+frontend known one-hop relations <= generated candidate one-hop relations
+```
+
+For example, if the frontend anchor has one `Corridor` neighbor through a
+`door` and two `PatientRoom` neighbors through `wall` edges, a generated
+candidate needs at least those same relation counts. A `Corridor` through a
+`wall` does not cover a `Corridor` through a `door`.
+
+Generated candidates may have additional neighbors. Extra neighbors and a
+higher degree do not prevent a match. When the frontend anchor has no known
+neighbors, every generated node with the same room type matches.
+
+Matching returns all valid generated nodes. It does not sort, rank, score, or
+choose among them, and it does not use internal ID order, modulo selection,
+randomness, BFS, DFS, degree equality, or graph edit distance.
+
+This branch does not aggregate next-room candidates across multiple matching
+nodes. To keep the public endpoint stable without making an arbitrary choice,
+the current sampler projects a neighborhood only when one generated graph has
+exactly one semantic match. A graph with zero or multiple matches contributes
+no projected neighbors. A later branch can aggregate across all returned
+matches without changing the HTTP contract or matching helper.
+
+The boundary remains replaceable: a future true conditional generator can
+implement the same sampler interface without changing the HTTP contract, ID
+adapter, or frontend.
