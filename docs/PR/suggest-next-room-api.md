@@ -171,6 +171,27 @@ This request path does **not** call Claude, does not require an Anthropic API
 key, and does not incur an LLM API cost. Claude remains limited to the explicit
 grammar-variant and report-interpretation CLI workflows.
 
+### Semantic anchor matching
+
+Generated graphs can contain many nodes with the anchor room type. Matching no
+longer chooses one through internal string ordering or sample-index modulo.
+
+Pure helpers now:
+
+- extract the frontend anchor room type
+- build frontend and generated one-hop neighbor multisets
+- check strict one-way multiset coverage
+- test one generated node for a semantic match
+- return every matching node in a generated graph
+
+Signature keys are `(neighbor room type, edge type)`. A generated node matches
+when its room type is equal and every required frontend relation count is
+covered. Additional generated neighbors and higher degree are allowed.
+Multiset counts and edge types must match.
+
+The matcher does not use ordering, randomness, BFS, DFS, degree similarity,
+ranking, scoring, fuzzy matching, or graph edit distance.
+
 ### Aggregation
 
 For each sample, the predictor:
@@ -185,28 +206,27 @@ For each sample, the predictor:
 An empty candidate set returns a valid response with `suggestions: []`.
 Diversity and novelty metrics do not affect this ranking.
 
-## Current generator-adapter limitation
+## Current generator-adapter boundary
 
 The current grammar begins from its own abstract seed and cannot directly
 continue an arbitrary concrete partial floorplan.
 
-The v1 sampler therefore uses an isolated projection adapter:
+The v1 sampler uses strict semantic coverage to retrieve all nodes that can
+correspond to the frontend anchor. This branch deliberately does not implement
+next-room candidate aggregation across those multiple matches.
 
-1. Read the frontend anchor's room type.
-2. Find all nodes with that type in each generated graph.
-3. Sort their internal IDs as strings.
-4. Select `matching_nodes[sample_index % len(matching_nodes)]`.
-5. Project the selected node's one-hop neighborhood onto a copy of the input
-   graph.
+To keep `/suggest-next-room` stable without choosing arbitrarily:
 
-For example, if a generated graph contains 30 `PatientRoom` nodes, one is
-selected for that sample according to the sample index. The selection does not
-currently use geometry, zone, degree, existing neighbor composition, or a
-frontend-to-generated semantic correspondence.
+- exactly one match: project that node's one-hop neighborhood
+- zero matches: project nothing for that generated graph
+- multiple matches: project nothing for that generated graph
 
-This is intentionally isolated, but it is not true partial-graph conditioning.
-A future sampler can use structural similarity or conditional grammar
-expansion while preserving the same API, ID adapter, and aggregation service.
+The pure matching helper still returns all matches. A later branch can consume
+that complete list as the basis for next-room aggregation.
+
+This remains an adapter rather than true partial-graph conditioning. A future
+conditional grammar can replace it while preserving the API, ID mapping, and
+matching contract.
 
 ## Frontend integration behavior
 
@@ -270,11 +290,26 @@ The API tests cover:
 - empty sample results
 - controlled generator failures
 
+The semantic matching tests cover:
+
+- anchor room-type and one-hop signature extraction
+- empty frontend signatures
+- room-type equality
+- exact and one-way coverage
+- additional generated neighbors and higher degree
+- missing required relations
+- incorrect edge types
+- multiset count failures and passes
+- multiple and zero matches in one graph
+- node insertion-order independence
+- retrieval of all matches without random or modulo selection
+- unique-match projection and refusal to choose among multiple matches
+
 Verification:
 
 ```text
 python -m pytest -q
-132 passed
+148 passed
 
 python -m graph_layout_synth validate-config --config configs/generic_building.yaml
 Config is valid: configs/generic_building.yaml.

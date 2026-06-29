@@ -9,6 +9,9 @@ import networkx as nx
 
 from graph_layout_synth.config import LayoutConfig, load_config
 from graph_layout_synth.generator import generate_candidates
+from graph_layout_synth.api.semantic_anchor_matching import (
+    find_matching_anchor_nodes,
+)
 
 
 class GraphSampler(Protocol):
@@ -28,10 +31,12 @@ class ExistingGeneratorSampler:
     """Adapt the seed-based generator to one-hop partial-graph prediction.
 
     The current grammar cannot expand arbitrary concrete partial graphs. This
-    adapter therefore generates ordinary candidates, finds a generated node
-    with the anchor's room type, and projects that node's neighborhood onto a
-    copy of the partial graph. It is intentionally isolated so true
-    conditional generation can replace it without changing the API service.
+    adapter therefore generates ordinary candidates and uses strict one-hop
+    semantic coverage to find every possible anchor match. Until aggregation
+    across multiple matching nodes is implemented, it projects a neighborhood
+    only for samples with exactly one match. It is intentionally isolated so
+    true conditional generation can replace it without changing the API
+    service.
     """
 
     config: LayoutConfig | None = None
@@ -48,12 +53,10 @@ class ExistingGeneratorSampler:
 
         config = self.config or load_config()
         results = generate_candidates(sample_count, seed=self.seed, config=config)
-        anchor_type = partial_graph.nodes[anchor_node_id].get("type")
         return [
-            self._project_generated_neighborhood(
+            self._project_unique_semantic_match(
                 partial_graph,
                 anchor_node_id,
-                anchor_type,
                 result.graph,
                 sample_index,
             )
@@ -61,26 +64,22 @@ class ExistingGeneratorSampler:
         ]
 
     @staticmethod
-    def _project_generated_neighborhood(
+    def _project_unique_semantic_match(
         partial_graph: nx.Graph,
         anchor_node_id: Hashable,
-        anchor_type: str | None,
         generated_graph: nx.Graph,
         sample_index: int,
     ) -> nx.Graph:
         sample = partial_graph.copy()
-        matching_nodes = sorted(
-            (
-                node
-                for node, attributes in generated_graph.nodes(data=True)
-                if attributes.get("type") == anchor_type
-            ),
-            key=str,
+        matching_nodes = find_matching_anchor_nodes(
+            partial_graph,
+            anchor_node_id,
+            generated_graph,
         )
-        if not matching_nodes:
+        if len(matching_nodes) != 1:
             return sample
 
-        generated_anchor = matching_nodes[sample_index % len(matching_nodes)]
+        (generated_anchor,) = matching_nodes
         for neighbor_index, generated_neighbor in enumerate(
             generated_graph.neighbors(generated_anchor)
         ):
