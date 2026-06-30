@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from graph_layout_synth.api.adapter import floorplan_to_graph
 from graph_layout_synth.api.models import FloorplanState, SuggestNextRoomRequest
 from graph_layout_synth.api.predictor import NextRoomPredictor
+from graph_layout_synth.api.sampling import GraphSampler
 from server.main import create_app
 
 
@@ -66,16 +67,37 @@ class FakeSampler:
         self.received_graph = partial_graph
         samples = []
         for sample_index, room_types in enumerate(self.new_neighbor_types[:sample_count]):
-            sample = partial_graph.copy()
+            sample = nx.Graph()
+            generated_anchor = ("generated-anchor", sample_index)
+            sample.add_node(
+                generated_anchor,
+                type=partial_graph.nodes[anchor_node_id]["type"],
+            )
+            for known_index, known_neighbor in enumerate(
+                partial_graph.neighbors(anchor_node_id)
+            ):
+                known_node = ("known", sample_index, known_index)
+                sample.add_node(
+                    known_node,
+                    type=partial_graph.nodes[known_neighbor]["type"],
+                )
+                sample.add_edge(
+                    generated_anchor,
+                    known_node,
+                    edge_type=partial_graph.edges[
+                        anchor_node_id,
+                        known_neighbor,
+                    ]["edge_type"],
+                )
             for neighbor_index, room_type in enumerate(room_types):
-                node_id = ("fake", sample_index, neighbor_index)
+                node_id = ("extra", sample_index, neighbor_index)
                 sample.add_node(node_id, type=room_type)
-                sample.add_edge(anchor_node_id, node_id, edge_type="door")
+                sample.add_edge(generated_anchor, node_id, edge_type="door")
             samples.append(sample)
         return samples
 
 
-def _client(sampler: FakeSampler) -> TestClient:
+def _client(sampler: GraphSampler) -> TestClient:
     predictor = NextRoomPredictor(sampler=sampler)
     return TestClient(create_app(predictor))
 
@@ -122,7 +144,7 @@ def test_valid_request_returns_ranked_camel_case_suggestions() -> None:
                 "sampleShare": 2 / 3,
                 "confidence": 2 / 3,
                 "reason": (
-                    "Appeared as a new neighbor of the selected Corridor "
+                    "Appeared as an extra neighbor of a semantically matched Corridor "
                     "in 2 of 3 generated graph samples."
                 ),
             },
@@ -132,7 +154,7 @@ def test_valid_request_returns_ranked_camel_case_suggestions() -> None:
                 "sampleShare": 1 / 3,
                 "confidence": 1 / 3,
                 "reason": (
-                    "Appeared as a new neighbor of the selected Corridor "
+                    "Appeared as an extra neighbor of a semantically matched Corridor "
                     "in 1 of 3 generated graph samples."
                 ),
             },
@@ -142,7 +164,7 @@ def test_valid_request_returns_ranked_camel_case_suggestions() -> None:
                 "sampleShare": 1 / 3,
                 "confidence": 1 / 3,
                 "reason": (
-                    "Appeared as a new neighbor of the selected Corridor "
+                    "Appeared as an extra neighbor of a semantically matched Corridor "
                     "in 1 of 3 generated graph samples."
                 ),
             },
@@ -256,6 +278,58 @@ def test_existing_neighbors_are_not_counted() -> None:
 
     assert response.status_code == 200
     assert response.json()["suggestions"] == []
+
+
+def test_endpoint_aggregates_all_semantic_matches_once_per_graph() -> None:
+    class MultipleMatchSampler:
+        def sample(
+            self,
+            partial_graph: nx.Graph,
+            anchor_node_id: Hashable,
+            sample_count: int,
+        ) -> list[nx.Graph]:
+            generated = nx.Graph()
+            for match_name, extras in (
+                ("match-a", [("StaffSupport", "door")]),
+                (
+                    "match-b",
+                    [
+                        ("StaffSupport", "wall"),
+                        ("ClinicalSupport", "door"),
+                    ],
+                ),
+            ):
+                generated.add_node(match_name, type="Corridor")
+                known_neighbor = f"{match_name}-known-patient"
+                generated.add_node(known_neighbor, type="PatientRoom")
+                generated.add_edge(
+                    match_name,
+                    known_neighbor,
+                    edge_type="door",
+                )
+                for extra_index, (room_type, edge_type) in enumerate(extras):
+                    extra_node = f"{match_name}-extra-{extra_index}"
+                    generated.add_node(extra_node, type=room_type)
+                    generated.add_edge(
+                        match_name,
+                        extra_node,
+                        edge_type=edge_type,
+                    )
+            return [generated]
+
+    response = _client(MultipleMatchSampler()).post(
+        "/suggest-next-room",
+        json=_request_body(sample_count=1),
+    )
+
+    assert response.status_code == 200
+    suggestions = response.json()["suggestions"]
+    assert [suggestion["roomType"] for suggestion in suggestions] == [
+        "ClinicalSupport",
+        "StaffSupport",
+    ]
+    assert all(suggestion["sampleCount"] == 1 for suggestion in suggestions)
+    assert all(suggestion["sampleShare"] == 1.0 for suggestion in suggestions)
 
 
 def test_empty_generator_result_returns_empty_suggestions_and_actual_count() -> None:

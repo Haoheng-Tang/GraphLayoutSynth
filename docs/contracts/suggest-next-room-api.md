@@ -330,14 +330,14 @@ The backend owns semantic/topological prediction:
       "sampleCount": 30,
       "sampleShare": 0.6,
       "confidence": 0.6,
-      "reason": "Appeared as a new neighbor of the selected Corridor in 30 of 50 generated graph samples."
+      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 30 of 50 generated graph samples."
     },
     {
       "roomType": "StaffSupport",
       "sampleCount": 10,
       "sampleShare": 0.2,
       "confidence": 0.2,
-      "reason": "Appeared as a new neighbor of the selected Corridor in 10 of 50 generated graph samples."
+      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 10 of 50 generated graph samples."
     }
   ],
   "sampleCount": 50,
@@ -420,16 +420,35 @@ is only a one-hop containment check.
 
 ### Current endpoint integration
 
-This matching branch does not aggregate next-room candidates across multiple
-semantic matches. The endpoint keeps its public response shape stable and
-projects a generated neighborhood only when a sample has exactly one semantic
-match. Samples with zero or multiple matches contribute no projected
-neighbors, avoiding an arbitrary selection. Aggregation across all matching
-nodes is deferred to a later branch.
+Every semantic match is used as a sampling point. For each matching node, the
+backend subtracts the frontend anchor signature from the generated candidate
+signature using multiset subtraction:
 
-For uniquely matched samples, the existing downstream predictor excludes
-neighbor node identities already present in the input graph and aggregates
-the remaining room types across samples.
+```text
+extra relations = generated candidate relations - known frontend relations
+```
+
+Positive remaining `(neighbor room type, edge type)` counts are candidate
+next-room relations. This correctly preserves multiplicity: if the frontend
+has one `PatientRoom::wall` relation and a generated match has three, two
+remain as extra relations.
+
+All matching nodes in one generated graph are considered. Their extra
+relations are then reduced to a set of room types for that graph. Consequently:
+
+* the same room type from multiple matching nodes counts once for that graph
+* the same room type with multiple edge types counts once for that graph
+* the same room type in multiple generated graphs increments its support count
+* a graph with no semantic matches contributes no candidate types
+
+`suggestions[].sampleCount` is therefore the number of generated graph samples
+supporting that extra room type, not the raw number of matching nodes or
+relations. `sampleShare` divides that count by the top-level number of
+generated graph samples actually returned.
+
+If no matching nodes are found, the backend returns an empty suggestion list.
+It does not relax matching, regenerate graphs, or fall back to internal node
+selection.
 
 ## Important behavior
 

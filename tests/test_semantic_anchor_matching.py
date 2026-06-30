@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections import Counter
 
 import networkx as nx
-
-from graph_layout_synth.api.sampling import ExistingGeneratorSampler
 from graph_layout_synth.api.semantic_anchor_matching import (
     build_anchor_neighbor_signature,
     build_candidate_neighbor_signature,
@@ -344,59 +342,3 @@ def test_matching_returns_all_nodes_without_random_or_modulo_selection() -> None
     assert set(first_call) == {"patient-1", "patient-2", "patient-3"}
     assert set(second_call) == set(first_call)
     assert len(first_call) == len(second_call) == 3
-
-
-def test_sampler_does_not_arbitrarily_project_when_multiple_nodes_match() -> None:
-    frontend = _frontend_anchor([("Corridor", "door")])
-    generated = nx.Graph()
-    for candidate_node in ("match-a", "match-b"):
-        generated.add_node(candidate_node, type="PatientRoom")
-        _add_neighbor(
-            generated,
-            candidate_node,
-            f"{candidate_node}-corridor",
-            "Corridor",
-            "door",
-        )
-
-    projected = ExistingGeneratorSampler._project_unique_semantic_match(
-        frontend,
-        "frontend-anchor",
-        generated,
-        sample_index=0,
-    )
-
-    assert set(projected.nodes) == set(frontend.nodes)
-    assert set(projected.edges) == set(frontend.edges)
-
-
-def test_sampler_projects_neighborhood_for_one_semantic_match() -> None:
-    frontend = _frontend_anchor([("Corridor", "door")])
-    generated = _generated_candidate(
-        [
-            ("Corridor", "door"),
-            ("StaffSupport", "door"),
-        ]
-    )
-    generated.add_node("non-match", type="PatientRoom")
-    _add_neighbor(
-        generated,
-        "non-match",
-        "non-match-corridor",
-        "Corridor",
-        "wall",
-    )
-
-    projected = ExistingGeneratorSampler._project_unique_semantic_match(
-        frontend,
-        "frontend-anchor",
-        generated,
-        sample_index=7,
-    )
-
-    predicted_types = {
-        attributes["type"]
-        for _, attributes in projected.nodes(data=True)
-        if attributes.get("is_predicted")
-    }
-    assert predicted_types == {"Corridor", "StaffSupport"}
