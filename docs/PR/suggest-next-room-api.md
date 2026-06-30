@@ -96,7 +96,7 @@ Example response:
       "sampleCount": 30,
       "sampleShare": 0.6,
       "confidence": 0.6,
-      "reason": "Appeared as a new neighbor of the selected Corridor in 30 of 50 generated graph samples."
+      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 30 of 50 generated graph samples."
     }
   ],
   "sampleCount": 50,
@@ -194,14 +194,16 @@ ranking, scoring, fuzzy matching, or graph edit distance.
 
 ### Aggregation
 
-For each sample, the predictor:
+For each generated graph, the predictor:
 
-1. Locates the preserved frontend anchor through the internal ID mapping.
-2. Finds its immediate predicted neighbors.
-3. Excludes neighbor node identities already connected in the input graph.
-4. Counts each new room type at most once per sample.
-5. Computes `sampleShare` and initial `confidence`.
-6. Sorts by descending share, then alphabetically for deterministic ties.
+1. Finds every semantic anchor match.
+2. Subtracts the frontend known-neighbor multiset from each match's generated
+   neighbor multiset.
+3. Collects positive remaining relations as extra candidates.
+4. De-duplicates room types across all matches in that graph.
+5. Counts each candidate room type at most once per generated graph.
+6. Computes graph-level `sampleShare` and initial `confidence`.
+7. Sorts by descending share, then alphabetically for deterministic ties.
 
 An empty candidate set returns a valid response with `suggestions: []`.
 Diversity and novelty metrics do not affect this ranking.
@@ -211,18 +213,13 @@ Diversity and novelty metrics do not affect this ranking.
 The current grammar begins from its own abstract seed and cannot directly
 continue an arbitrary concrete partial floorplan.
 
-The v1 sampler uses strict semantic coverage to retrieve all nodes that can
-correspond to the frontend anchor. This branch deliberately does not implement
-next-room candidate aggregation across those multiple matches.
+The v1 sampler returns raw generated graphs. Strict semantic coverage retrieves
+all nodes that can correspond to the frontend anchor, and every match
+contributes to extra-neighbor aggregation.
 
-To keep `/suggest-next-room` stable without choosing arbitrarily:
-
-- exactly one match: project that node's one-hop neighborhood
-- zero matches: project nothing for that generated graph
-- multiple matches: project nothing for that generated graph
-
-The pure matching helper still returns all matches. A later branch can consume
-that complete list as the basis for next-room aggregation.
+Known frontend relations are excluded by multiset subtraction over
+`(neighbor room type, edge type)`. Multiplicity is preserved internally, while
+room types are counted at most once per generated graph for the v1 response.
 
 This remains an adapter rather than true partial-graph conditioning. A future
 conditional grammar can replace it while preserving the API, ID mapping, and
@@ -287,6 +284,7 @@ The API tests cover:
 - aggregation and deterministic ordering
 - duplicate room types within one sample
 - existing-neighbor exclusion
+- all-match endpoint aggregation
 - empty sample results
 - controlled generator failures
 
@@ -303,13 +301,15 @@ The semantic matching tests cover:
 - multiple and zero matches in one graph
 - node insertion-order independence
 - retrieval of all matches without random or modulo selection
-- unique-match projection and refusal to choose among multiple matches
+- multiset subtraction and preserved extra multiplicity
+- all-match aggregation with per-graph room-type de-duplication
+- graph-level sample counts, shares, and deterministic ordering
 
 Verification:
 
 ```text
 python -m pytest -q
-148 passed
+158 passed
 
 python -m graph_layout_synth validate-config --config configs/generic_building.yaml
 Config is valid: configs/generic_building.yaml.

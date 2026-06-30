@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Hashable
 
 import networkx as nx
 
@@ -73,10 +72,3 @@ def floorplan_to_graph(floorplan: FloorplanState) -> AdaptedFloorplan:
         frontend_to_internal=frontend_to_internal,
         internal_to_frontend=internal_to_frontend,
     )
-
-
-def existing_neighbor_ids(graph: nx.Graph, anchor_node_id: Hashable) -> set[Hashable]:
-    """Return the input nodes already adjacent to an anchor."""
-    if anchor_node_id not in graph:
-        raise ValueError(f"Anchor node '{anchor_node_id}' is not present in the graph.")
-    return set(graph.neighbors(anchor_node_id))

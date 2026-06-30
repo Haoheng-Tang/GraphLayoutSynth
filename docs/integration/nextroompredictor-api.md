@@ -95,14 +95,14 @@ Example response:
       "sampleCount": 30,
       "sampleShare": 0.6,
       "confidence": 0.6,
-      "reason": "Appeared as a new neighbor of the selected Corridor in 30 of 50 generated graph samples."
+      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 30 of 50 generated graph samples."
     },
     {
       "roomType": "StaffSupport",
       "sampleCount": 10,
       "sampleShare": 0.2,
       "confidence": 0.2,
-      "reason": "Appeared as a new neighbor of the selected Corridor in 10 of 50 generated graph samples."
+      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 10 of 50 generated graph samples."
     }
   ],
   "sampleCount": 50,
@@ -175,13 +175,26 @@ Matching returns all valid generated nodes. It does not sort, rank, score, or
 choose among them, and it does not use internal ID order, modulo selection,
 randomness, BFS, DFS, degree equality, or graph edit distance.
 
-This branch does not aggregate next-room candidates across multiple matching
-nodes. To keep the public endpoint stable without making an arbitrary choice,
-the current sampler projects a neighborhood only when one generated graph has
-exactly one semantic match. A graph with zero or multiple matches contributes
-no projected neighbors. A later branch can aggregate across all returned
-matches without changing the HTTP contract or matching helper.
+Every matching node is used as a sampling point. For each match, GraphLayoutSynth
+subtracts the frontend anchor's known relation multiset from the generated
+node's relation multiset. Positive remaining counts are extra candidate
+relations.
+
+All matches in the generated graph contribute, but room types are de-duplicated
+within that graph before counting. Thus, if three matching nodes all produce
+an extra `StaffSupport`, that generated graph contributes one unit of support
+for `StaffSupport`. If `StaffSupport` appears in 18 different generated graphs,
+its suggestion `sampleCount` is 18.
+
+The top-level `sampleCount` remains the number of generated graphs actually
+processed. Suggestion `sampleShare` is its graph-level support count divided by
+that top-level count.
+
+A graph with no matching nodes contributes nothing. If no generated graphs
+contain a match, the endpoint returns an empty suggestion list so the frontend
+can use its local fallback. Matching is not relaxed and graphs are not
+regenerated.
 
 The boundary remains replaceable: a future true conditional generator can
 implement the same sampler interface without changing the HTTP contract, ID
-adapter, or frontend.
+adapter, matching rule, or frontend.
