@@ -13,7 +13,10 @@ from graph_layout_synth.api.matching_node_neighbor_aggregation import (
     extract_extra_neighbor_candidates,
     subtract_neighbor_signature,
 )
-from graph_layout_synth.api.sampling import ExistingGeneratorSampler
+from graph_layout_synth.api.sampling import (
+    ExistingGeneratorSampler,
+    SUGGESTION_CONFIG_PATH_ENV,
+)
 
 
 def _add_neighbor(
@@ -329,3 +332,39 @@ def test_sampler_returns_raw_generated_graphs_without_node_selection(
     assert samples == [generated]
     assert samples[0] is generated
     assert {"match-a", "match-b"} <= set(samples[0].nodes)
+
+
+def test_sampler_can_use_config_path_from_environment(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    frontend = nx.Graph()
+    frontend.add_node("frontend-anchor", type="Corridor")
+    generated = nx.Graph()
+    generated.add_node("match", type="Corridor")
+    config_path = tmp_path / "api-config.yaml"
+    expected_config = object()
+    loaded_paths = []
+
+    monkeypatch.setenv(SUGGESTION_CONFIG_PATH_ENV, str(config_path))
+    monkeypatch.setattr(
+        sampling_module,
+        "load_config",
+        lambda path: loaded_paths.append(path) or expected_config,
+    )
+    monkeypatch.setattr(
+        sampling_module,
+        "generate_candidates",
+        lambda sample_count, seed, config: [SimpleNamespace(graph=generated)],
+    )
+
+    sampler = ExistingGeneratorSampler()
+    samples = sampler.sample(
+        frontend,
+        "frontend-anchor",
+        sample_count=1,
+    )
+
+    assert samples == [generated]
+    assert loaded_paths == [config_path]
+    assert sampler.config is expected_config

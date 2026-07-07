@@ -24,6 +24,10 @@ from graph_layout_synth.api.semantic_anchor_matching import (
     find_matching_anchor_nodes,
     is_semantic_anchor_match,
 )
+from graph_layout_synth.api.suggestion_debug_artifacts import (
+    SuggestionArtifactWriter,
+    SuggestionDebugSettings,
+)
 
 __all__ = [
     "DoorOrAdjacency",
@@ -33,6 +37,8 @@ __all__ = [
     "Room",
     "SuggestNextRoomRequest",
     "SuggestNextRoomResponse",
+    "SuggestionArtifactWriter",
+    "SuggestionDebugSettings",
     "aggregate_candidates_from_matching_nodes",
     "build_anchor_neighbor_signature",
     "build_candidate_neighbor_signature",

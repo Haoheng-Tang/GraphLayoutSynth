@@ -13,6 +13,15 @@ python -m pip install -e ".[dev]"
 python -m uvicorn server.main:app --reload --port 8000
 ```
 
+By default, suggestions sample from `configs/generic_building.yaml`. To use a
+generated or experimental grammar config, set the config path before starting
+the server:
+
+```powershell
+$env:GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG = "outputs/llm_grammar_variant.yaml"
+python -m uvicorn server.main:app --reload --port 8000
+```
+
 If the server fails while constructing `FastAPI` with an error mentioning
 `Router.__init__`, reinstall the project with the command above. The project
 pins FastAPI and Starlette to a compatible range; `python -m pip check` can
@@ -110,7 +119,11 @@ Example response:
 }
 ```
 
-Each room type is counted at most once per generated sample, so `sampleShare` remains between zero and one. Existing input neighbors are identified by mapped node identity and excluded; a distinct newly predicted neighbor may still have the same room type as an existing room.
+Each room type is counted at most once per generated sample, so `sampleShare`
+remains between zero and one. Known input relations are excluded through
+multiset subtraction over `(neighbor room type, edge type)`. A generated match
+with a higher count of a known relation can therefore still produce that room
+type as an extra candidate.
 
 The top-level `sampleCount` reports the number of samples actually returned by the sampler. If no candidate neighbor types are found, `suggestions` is an empty array.
 
@@ -126,6 +139,75 @@ Requests must contain:
 - a `sampleCount` from 1 through 200.
 
 Invalid requests return HTTP 400. Unexpected generation failures return a controlled HTTP 500 response without an internal stack trace.
+
+## Suggestion debug artifacts
+
+The endpoint does not save generated graphs during normal requests. For a
+single diagnostic request, add either or both optional booleans:
+
+```json
+{
+  "includeDebugArtifacts": true,
+  "includeDebugVisualizations": true
+}
+```
+
+`includeDebugArtifacts` saves JSON reports. `includeDebugVisualizations` saves
+PNGs and also enables the JSON artifact run. Existing frontend requests can
+omit both fields and retain the same behavior and response shape.
+
+To enable artifacts for all requests handled by a server process, set:
+
+```powershell
+$env:GRAPHLAYOUTSYNTH_SAVE_SUGGESTION_ARTIFACTS = "true"
+```
+
+Configure the base directory and optional PNGs with:
+
+```powershell
+$env:GRAPHLAYOUTSYNTH_SUGGESTION_ARTIFACT_DIR = "outputs/nextroom_suggestions"
+$env:GRAPHLAYOUTSYNTH_SAVE_SUGGESTION_PNGS = "true"
+```
+
+Truth values accepted for environment flags are `1`, `true`, `yes`, and `on`,
+case-insensitively. The default base directory is
+`outputs/nextroom_suggestions`. Every enabled request creates a separate
+timestamp-and-short-ID directory:
+
+```text
+outputs/nextroom_suggestions/<timestamp>-<id>/
+  README.md
+  request.json
+  generated_graph_000.json
+  generated_graph_001.json
+  matching_report.json
+  aggregation_report.json
+  generated_graph_000.png       # optional
+  generated_graph_001.png       # optional
+```
+
+The files contain:
+
+- `request.json`: validated camel-case request snapshot, including debug flags
+- `generated_graph_*.json`: raw generated NetworkX node-link graphs with node,
+  edge, and graph attributes
+- `matching_report.json`: frontend anchor signature and, for every generated
+  graph, matching internal node IDs, one-hop signatures, subtracted extras,
+  and candidate room types
+- `aggregation_report.json`: anchor identity/type, sample and match totals,
+  per-room candidate counts, returned suggestions, and predictor version
+- `README.md`: concise run totals, suggestions, and pointers to key files
+- `generated_graph_*.png`: optional renderings using the existing
+  GraphLayoutSynth visualization utility
+
+Internal generated node IDs are allowed only in these private disk artifacts;
+they are never added to the normal response. The server logs the saved
+directory. It also logs artifact or PNG failures and continues returning the
+computed suggestions without exposing a stack trace to the client.
+
+Debug saving can create many files, and PNG rendering adds work to the request
+path. Keep these settings disabled by default in production and use an
+external retention policy if server-wide saving is enabled.
 
 ## Identity and graph conversion
 

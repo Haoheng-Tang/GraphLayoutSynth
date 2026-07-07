@@ -77,7 +77,49 @@ NextRoomPredictor should call the suggestion endpoint only when the user clicks 
 
 The default allowed browser origin is `http://localhost:5173`. Add comma-separated local origins with `NEXT_ROOM_ALLOWED_ORIGINS`.
 
+The suggestion endpoint uses `configs/generic_building.yaml` by default. To
+test against a generated grammar variant, set the config path before starting
+the API:
+
+```powershell
+$env:GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG = "outputs/llm_grammar_variant.yaml"
+python -m uvicorn server.main:app --reload --port 8000
+```
+
 See [the NextRoomPredictor integration guide](docs/integration/nextroompredictor-api.md) for the request contract, curl example, response, validation behavior, and current generator-adapter boundary.
+
+### Suggestion debug artifacts
+
+Suggestion requests do not write files by default. To save the raw generated
+graphs and matching/aggregation diagnostics for one request, add:
+
+```json
+{
+  "includeDebugArtifacts": true,
+  "includeDebugVisualizations": true
+}
+```
+
+Both fields are optional. `includeDebugVisualizations` also enables the JSON
+artifact run. To enable saving server-wide instead, set:
+
+```powershell
+$env:GRAPHLAYOUTSYNTH_SAVE_SUGGESTION_ARTIFACTS = "true"
+$env:GRAPHLAYOUTSYNTH_SAVE_SUGGESTION_PNGS = "true"
+$env:GRAPHLAYOUTSYNTH_SUGGESTION_ARTIFACT_DIR = "outputs/nextroom_suggestions"
+```
+
+Each enabled request creates a timestamped, collision-resistant subdirectory.
+It contains the validated request snapshot, raw NetworkX node-link graph JSON,
+per-graph semantic matching details, final aggregation metadata, a compact
+`README.md`, and optional PNGs. The saved path is logged by the server and is
+not added to the public response.
+
+Artifact and PNG failures are logged without failing prediction. Debug saving
+can create many files and PNG rendering adds latency, so keep both disabled by
+default in production. See
+[the integration guide](docs/integration/nextroompredictor-api.md#suggestion-debug-artifacts)
+for the complete file list.
 
 ## Configuration
 
