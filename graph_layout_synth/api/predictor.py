@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from graph_layout_synth.api.adapter import floorplan_to_graph
@@ -15,8 +16,12 @@ from graph_layout_synth.api.models import (
 )
 from graph_layout_synth.api.sampling import ExistingGeneratorSampler, GraphSampler
 from graph_layout_synth.api.semantic_anchor_matching import extract_anchor_room_type
+from graph_layout_synth.api.suggestion_debug_artifacts import (
+    SuggestionArtifactWriter,
+)
 
 
+LOGGER = logging.getLogger(__name__)
 PREDICTOR_VERSION = "graphlayoutsynth-v1"
 
 
@@ -25,6 +30,9 @@ class NextRoomPredictor:
     """Convert, sample, aggregate, and rank room-type suggestions."""
 
     sampler: GraphSampler = field(default_factory=ExistingGeneratorSampler)
+    artifact_writer: SuggestionArtifactWriter = field(
+        default_factory=SuggestionArtifactWriter
+    )
     predictor_version: str = PREDICTOR_VERSION
 
     def suggest(self, request: SuggestNextRoomRequest) -> SuggestNextRoomResponse:
@@ -51,8 +59,29 @@ class NextRoomPredictor:
             actual_sample_count,
             anchor_type,
         )
-        return SuggestNextRoomResponse(
+        response = SuggestNextRoomResponse(
             suggestions=suggestions,
             sample_count=actual_sample_count,
             predictor_version=self.predictor_version,
         )
+        try:
+            artifact_directory = self.artifact_writer.save_if_enabled(
+                request,
+                adapted.graph,
+                anchor_node_id,
+                generated_graphs,
+                response,
+                getattr(self.sampler, "config", None),
+            )
+        except Exception:
+            LOGGER.warning(
+                "Failed to save next-room suggestion debug artifacts.",
+                exc_info=True,
+            )
+        else:
+            if artifact_directory is not None:
+                LOGGER.info(
+                    "Saved next-room suggestion debug artifacts to %s.",
+                    artifact_directory,
+                )
+        return response

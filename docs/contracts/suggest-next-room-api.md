@@ -35,6 +35,15 @@ $env:NEXT_ROOM_ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
 python -m uvicorn server.main:app --reload --port 8000
 ```
 
+`POST /suggest-next-room` uses `configs/generic_building.yaml` by default.
+To run suggestions against a generated or experimental grammar config, set
+`GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` before starting the server:
+
+```powershell
+$env:GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG = "outputs/llm_grammar_variant.yaml"
+python -m uvicorn server.main:app --reload --port 8000
+```
+
 ## When to call
 
 Call the endpoint after the user clicks a room's `+` handle and the frontend
@@ -86,6 +95,8 @@ export type SuggestNextRoomRequest = {
   floorplan: FloorplanState;
   anchorRoomId: string;
   sampleCount: number;
+  includeDebugArtifacts?: boolean;
+  includeDebugVisualizations?: boolean;
 };
 
 export type NextRoomTypeSuggestion = {
@@ -152,6 +163,8 @@ export async function suggestNextRoom(
   anchorRoomId: string,
   options: {
     sampleCount?: number;
+    includeDebugArtifacts?: boolean;
+    includeDebugVisualizations?: boolean;
     timeoutMs?: number;
     signal?: AbortSignal;
   } = {},
@@ -180,6 +193,12 @@ export async function suggestNextRoom(
     anchorRoomId,
     sampleCount,
   };
+  if (options.includeDebugArtifacts !== undefined) {
+    request.includeDebugArtifacts = options.includeDebugArtifacts;
+  }
+  if (options.includeDebugVisualizations !== undefined) {
+    request.includeDebugVisualizations = options.includeDebugVisualizations;
+  }
 
   try {
     const response = await fetch(`${API_BASE_URL}/suggest-next-room`, {
@@ -270,11 +289,58 @@ The frontend should never need to know GraphLayoutSynth internal node IDs.
 }
 ```
 
+To ask GraphLayoutSynth to also save private server-side debug artifacts and
+PNG visualizations for this request, include the optional debug flags:
+
+```json
+{
+  "floorplan": {
+    "schemaVersion": 1,
+    "rooms": [
+      {
+        "id": "room-1",
+        "type": "Corridor",
+        "x": 100,
+        "y": 100,
+        "width": 150,
+        "height": 80
+      },
+      {
+        "id": "room-2",
+        "type": "PatientRoom",
+        "x": 250,
+        "y": 100,
+        "width": 150,
+        "height": 110
+      }
+    ],
+    "edges": [
+      {
+        "id": "room-1-east-room-2",
+        "sourceRoomId": "room-1",
+        "targetRoomId": "room-2",
+        "side": "east",
+        "edgeType": "door"
+      }
+    ],
+    "selectedRoomId": "room-1"
+  },
+  "anchorRoomId": "room-1",
+  "sampleCount": 50,
+  "includeDebugArtifacts": true,
+  "includeDebugVisualizations": true
+}
+```
+
 ## Request fields
 
 * `floorplan`: current editor floorplan JSON from NextRoomPredictor.
 * `anchorRoomId`: frontend room ID for the selected/anchor room where the user clicked a `+` handle.
 * `sampleCount`: number of graph samples requested. Use `50` as the normal UI default.
+* `includeDebugArtifacts`: optional diagnostic flag. When `true`, saves a
+  private server-side artifact run; defaults to `false`.
+* `includeDebugVisualizations`: optional diagnostic flag. When `true`, saves
+  PNGs as part of an artifact run; defaults to `false`.
 
 ### Request validation rules
 
@@ -293,6 +359,8 @@ The frontend should never need to know GraphLayoutSynth internal node IDs.
 | `floorplan.selectedRoomId` | Optional. If supplied, it must reference an existing room. |
 | `anchorRoomId` | Required and must match one `rooms[].id`; it is authoritative even if `selectedRoomId` differs. |
 | `sampleCount` | Required strict integer from `1` through `200`. |
+| `includeDebugArtifacts` | Optional strict boolean; defaults to `false`. |
+| `includeDebugVisualizations` | Optional strict boolean; defaults to `false` and implies artifact saving when `true`. |
 
 The request is a snapshot. Send the latest rooms and edges on every handle
 click. GraphLayoutSynth does not retain or mutate it.
@@ -449,6 +517,43 @@ generated graph samples actually returned.
 If no matching nodes are found, the backend returns an empty suggestion list.
 It does not relax matching, regenerate graphs, or fall back to internal node
 selection.
+
+## Server-side debug artifacts
+
+Debug saving is disabled by default and does not change the required response
+fields. It can be enabled for one request with `includeDebugArtifacts: true`,
+or server-wide with:
+
+```text
+GRAPHLAYOUTSYNTH_SAVE_SUGGESTION_ARTIFACTS=true
+```
+
+The base directory defaults to `outputs/nextroom_suggestions` and can be
+changed with `GRAPHLAYOUTSYNTH_SUGGESTION_ARTIFACT_DIR`. Each enabled request
+gets a separate timestamp-and-random-ID directory containing:
+
+* `request.json`: validated request snapshot in public camel-case form
+* `generated_graph_<index>.json`: raw NetworkX node-link graph data
+* `matching_report.json`: frontend signature, matching internal node IDs,
+  generated signatures, subtracted extras, and per-graph candidates
+* `aggregation_report.json`: match totals, per-room support counts, and the
+  exact suggestions returned
+* `README.md`: concise human-readable run summary
+
+Optional PNG rendering is enabled by `includeDebugVisualizations: true` or:
+
+```text
+GRAPHLAYOUTSYNTH_SAVE_SUGGESTION_PNGS=true
+```
+
+PNG enablement also creates the JSON artifact run. Internal generated node IDs
+may appear in these private files but remain absent from the API response.
+Successful paths and failures are logged. Saving and visualization failures do
+not turn a successful prediction into an API error.
+
+Debug saving can create many files and PNG rendering can add request latency.
+Keep it disabled by default in production and manage artifact retention
+outside the request path.
 
 ## Important behavior
 

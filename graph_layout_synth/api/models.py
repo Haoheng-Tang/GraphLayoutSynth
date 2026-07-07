@@ -84,6 +84,8 @@ class SuggestNextRoomRequest(ApiModel):
     floorplan: FloorplanState
     anchor_room_id: str = Field(min_length=1)
     sample_count: int = Field(ge=1, le=200, strict=True)
+    include_debug_artifacts: bool = Field(default=False, strict=True)
+    include_debug_visualizations: bool = Field(default=False, strict=True)
 
     @model_validator(mode="after")
     def validate_anchor(self) -> "SuggestNextRoomRequest":
