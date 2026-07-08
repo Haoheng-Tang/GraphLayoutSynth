@@ -11,8 +11,16 @@ import networkx as nx
 
 from graph_layout_synth.config import LayoutConfig, load_config
 from graph_layout_synth.generator import generate_candidates
+from graph_layout_synth.grammar_variant_control_plane import (
+    GrammarVariantControlPlaneError,
+    active_variant_config_path,
+)
 
+GRAMMAR_MODE_ENV = "GRAPHLAYOUTSYNTH_GRAMMAR_MODE"
 SUGGESTION_CONFIG_PATH_ENV = "GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG"
+GRAMMAR_MODE_STATIC = "static"
+GRAMMAR_MODE_ENV_CONFIG = "env_config"
+GRAMMAR_MODE_ACTIVE_VARIANT = "active_variant"
 
 
 class GraphSampler(Protocol):
@@ -46,12 +54,31 @@ class ExistingGeneratorSampler:
         if self.config is not None:
             return self.config
 
+        mode = os.getenv(GRAMMAR_MODE_ENV, "").strip().lower()
         configured_path = os.getenv(SUGGESTION_CONFIG_PATH_ENV)
-        config = (
-            load_config(Path(configured_path).expanduser())
-            if configured_path
-            else load_config()
-        )
+        if not mode:
+            mode = GRAMMAR_MODE_ENV_CONFIG if configured_path else GRAMMAR_MODE_STATIC
+
+        if mode == GRAMMAR_MODE_STATIC:
+            config = load_config()
+        elif mode == GRAMMAR_MODE_ENV_CONFIG:
+            if not configured_path:
+                raise ValueError(
+                    f"{SUGGESTION_CONFIG_PATH_ENV} must be set when "
+                    f"{GRAMMAR_MODE_ENV}=env_config."
+                )
+            config = load_config(Path(configured_path).expanduser())
+        elif mode == GRAMMAR_MODE_ACTIVE_VARIANT:
+            try:
+                config_path = active_variant_config_path()
+            except GrammarVariantControlPlaneError as exc:
+                raise ValueError(str(exc)) from exc
+            config = load_config(config_path)
+        else:
+            raise ValueError(
+                f"Unsupported {GRAMMAR_MODE_ENV} '{mode}'. Expected static, "
+                "env_config, or active_variant."
+            )
         self.config = config
         return config
 
