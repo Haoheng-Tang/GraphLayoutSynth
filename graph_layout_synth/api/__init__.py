@@ -3,6 +3,7 @@
 from graph_layout_synth.api.models import (
     DoorOrAdjacency,
     FloorplanState,
+    GrammarVariantProposeRequest,
     NextRoomTypeSuggestion,
     Room,
     SuggestNextRoomRequest,
@@ -32,6 +33,7 @@ from graph_layout_synth.api.suggestion_debug_artifacts import (
 __all__ = [
     "DoorOrAdjacency",
     "FloorplanState",
+    "GrammarVariantProposeRequest",
     "NextRoomPredictor",
     "NextRoomTypeSuggestion",
     "Room",

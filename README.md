@@ -72,6 +72,11 @@ The service exposes:
 
 - `GET /health`
 - `POST /suggest-next-room`
+- optional feature-gated grammar variant endpoints:
+  - `POST /grammar-variants/propose`
+  - `GET /grammar-variants`
+  - `GET /grammar-variants/{variant_id}`
+  - `POST /grammar-variants/{variant_id}/activate`
 
 NextRoomPredictor should call the suggestion endpoint only when the user clicks a `+` handle. The v1 API predicts semantic/topological neighbor room types; it does not accept a required `side` or direction and does not return geometry. The frontend keeps responsibility for clicked-side placement and overlap validation.
 
@@ -82,6 +87,7 @@ test against a generated grammar variant, set the config path before starting
 the API:
 
 ```powershell
+$env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "env_config"
 $env:GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG = "outputs/llm_grammar_variant.yaml"
 python -m uvicorn server.main:app --reload --port 8000
 ```
@@ -167,6 +173,52 @@ The optional `propose-grammar-variant` command asks Claude to propose a complete
 When asking for specific room mixes, prefer config-defined `room_mix_targets` and `semantic_node_groups` so the prompt and semantic checks share the same parameters. A separate `--variant-requirements` YAML/JSON file can still be used for run-specific overrides.
 
 The grammar-variant prompt includes a machine-readable `Live Config Contract` section derived from the actual base config. If a variant introduces a new node type or edge type, the generated YAML must update every relevant config section consistently.
+
+### HTTP LLM Variant Control Plane
+
+The CLI workflow remains available. GraphLayoutSynth also exposes an optional
+HTTP control plane for proposing, listing, inspecting, and activating validated
+grammar/config variants. It is disabled by default:
+
+```powershell
+$env:GRAPHLAYOUTSYNTH_ENABLE_LLM_VARIANTS = "true"
+$env:GRAPHLAYOUTSYNTH_LLM_VARIANT_DIR = "outputs/llm_variants"
+python -m uvicorn server.main:app --reload --port 8000
+```
+
+Endpoints:
+
+- `POST /grammar-variants/propose`
+- `GET /grammar-variants`
+- `GET /grammar-variants/{variant_id}`
+- `POST /grammar-variants/{variant_id}/activate`
+
+`POST /grammar-variants/propose` accepts `heuristicInstructions`, optional
+`baseConfigPath`, optional structured `variantRequirements`, optional `model`,
+`dryRun`, and `activateIfValid`. Dry runs write the prompt without calling
+Claude or requiring `ANTHROPIC_API_KEY`. Live proposals save structured
+artifacts under `outputs/llm_variants/<variant_id>/` and update
+`outputs/llm_variants/registry.json`.
+
+Each proposal directory contains files such as `metadata.json`,
+`heuristic_instructions.md`, `base_config_path.txt`, `prompt.md`,
+`raw_llm_response.md`, `extracted_variant.yaml`, `validated_variant.yaml`,
+`invalid_variant.yaml`, `validation_report.json`, and `rationale.md` when
+available. Invalid or failed variants are recorded but cannot be activated.
+Activation writes `outputs/llm_variants/active_variant.json`.
+
+Suggestion config selection is controlled separately:
+
+```powershell
+$env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "static"         # default
+$env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "env_config"    # uses GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG
+$env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "active_variant"
+```
+
+If `GRAPHLAYOUTSYNTH_GRAMMAR_MODE` is omitted, the API preserves existing
+behavior: it uses `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` when that path is set,
+otherwise it uses `configs/generic_building.yaml`. The LLM never generates raw
+NetworkX graphs and `/suggest-next-room` never calls the LLM directly.
 
 Prompt-only dry run:
 

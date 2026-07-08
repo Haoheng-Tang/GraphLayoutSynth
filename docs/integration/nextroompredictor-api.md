@@ -18,9 +18,21 @@ generated or experimental grammar config, set the config path before starting
 the server:
 
 ```powershell
+$env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "env_config"
 $env:GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG = "outputs/llm_grammar_variant.yaml"
 python -m uvicorn server.main:app --reload --port 8000
 ```
+
+The grammar mode can be:
+
+- `static`: use `configs/generic_building.yaml`
+- `env_config`: use `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG`
+- `active_variant`: use the active validated variant pointer written by the
+  grammar-variant control plane
+
+If `GRAPHLAYOUTSYNTH_GRAMMAR_MODE` is omitted, the service remains
+backward-compatible: it uses `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` when set and
+otherwise falls back to the static default config.
 
 If the server fails while constructing `FastAPI` with an error mentioning
 `Router.__init__`, reinstall the project with the command above. The project
@@ -49,6 +61,84 @@ Response:
 
 ```json
 {"status":"ok"}
+```
+
+## Optional grammar variant control plane
+
+The LLM grammar/config variant control plane is disabled by default. Enable it
+only for diagnostic or authoring workflows:
+
+```powershell
+$env:GRAPHLAYOUTSYNTH_ENABLE_LLM_VARIANTS = "true"
+$env:GRAPHLAYOUTSYNTH_LLM_VARIANT_DIR = "outputs/llm_variants"
+python -m uvicorn server.main:app --reload --port 8000
+```
+
+The LLM proposes complete YAML configs only. It does not generate raw graphs,
+does not bypass validation, and is never called by normal `/suggest-next-room`
+requests.
+
+### Dry-run proposal
+
+```bash
+curl -X POST http://localhost:8000/grammar-variants/propose \
+  -H "Content-Type: application/json" \
+  -d '{
+    "heuristicInstructions": "Increase patient/support room mix using the existing schema.",
+    "dryRun": true
+  }'
+```
+
+Dry runs save `prompt.md` and registry metadata without requiring
+`ANTHROPIC_API_KEY`.
+
+### Live proposal
+
+Live proposals require `ANTHROPIC_API_KEY` in the environment or `.env.local`.
+
+```bash
+curl -X POST http://localhost:8000/grammar-variants/propose \
+  -H "Content-Type: application/json" \
+  -d '{
+    "heuristicInstructions": "Increase patient/support room mix using the existing schema.",
+    "activateIfValid": true,
+    "model": "claude-sonnet-4-6"
+  }'
+```
+
+Each proposal writes a structured directory:
+
+```text
+outputs/llm_variants/<variant_id>/
+  metadata.json
+  heuristic_instructions.md
+  base_config_path.txt
+  prompt.md
+  raw_llm_response.md
+  extracted_variant.yaml
+  validated_variant.yaml
+  invalid_variant.yaml
+  validation_report.json
+  rationale.md
+```
+
+The registry is `outputs/llm_variants/registry.json`. Activation writes
+`outputs/llm_variants/active_variant.json`. Only variants with status `valid`
+can be activated; dry-run, invalid, and failed records are never activated.
+
+### List, inspect, activate
+
+```bash
+curl http://localhost:8000/grammar-variants
+curl http://localhost:8000/grammar-variants/<variant_id>
+curl -X POST http://localhost:8000/grammar-variants/<variant_id>/activate
+```
+
+To make suggestions use the active validated variant:
+
+```powershell
+$env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "active_variant"
+python -m uvicorn server.main:app --reload --port 8000
 ```
 
 ## Suggest a next room

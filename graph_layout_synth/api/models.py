@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -112,3 +112,14 @@ class SuggestNextRoomResponse(ApiModel):
     suggestions: list[NextRoomTypeSuggestion]
     sample_count: int = Field(ge=0)
     predictor_version: str
+
+
+class GrammarVariantProposeRequest(ApiModel):
+    """Request for proposing or dry-running a YAML grammar/config variant."""
+
+    heuristic_instructions: str = Field(min_length=1)
+    base_config_path: str | None = None
+    variant_requirements: dict[str, Any] | None = None
+    activate_if_valid: bool = Field(default=False, strict=True)
+    dry_run: bool = Field(default=False, strict=True)
+    model: str | None = None

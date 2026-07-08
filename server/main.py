@@ -12,10 +12,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from graph_layout_synth.api.models import (
+    GrammarVariantProposeRequest,
     SuggestNextRoomRequest,
     SuggestNextRoomResponse,
 )
 from graph_layout_synth.api.predictor import NextRoomPredictor
+from graph_layout_synth.config import DEFAULT_CONFIG_PATH
+from graph_layout_synth.grammar_variant_control_plane import (
+    GrammarVariantControlPlaneError,
+    activate_variant,
+    list_variant_records,
+    llm_variant_control_plane_enabled,
+    propose_variant_from_instructions,
+    variant_detail,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -78,6 +88,60 @@ def create_app(predictor: NextRoomPredictor | None = None) -> FastAPI:
                 status_code=500,
                 detail="Next-room prediction failed.",
             ) from exc
+
+    def _require_llm_variant_control_plane_enabled() -> None:
+        if not llm_variant_control_plane_enabled():
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "LLM grammar variant endpoints are disabled. Set "
+                    "GRAPHLAYOUTSYNTH_ENABLE_LLM_VARIANTS=true to enable them."
+                ),
+            )
+
+    @app.post("/grammar-variants/propose")
+    def propose_grammar_variant(
+        request: GrammarVariantProposeRequest,
+    ) -> dict:
+        _require_llm_variant_control_plane_enabled()
+        try:
+            return propose_variant_from_instructions(
+                heuristic_instructions=request.heuristic_instructions,
+                base_config_path=request.base_config_path or DEFAULT_CONFIG_PATH,
+                variant_requirements=request.variant_requirements,
+                model=request.model,
+                dry_run=request.dry_run,
+                activate_if_valid=request.activate_if_valid,
+            )
+        except GrammarVariantControlPlaneError as exc:
+            detail: dict[str, object] = {"message": str(exc)}
+            if exc.record is not None:
+                detail["variant"] = exc.record
+            raise HTTPException(status_code=exc.status_code, detail=detail) from exc
+
+    @app.get("/grammar-variants")
+    def list_grammar_variants() -> dict[str, list[dict]]:
+        _require_llm_variant_control_plane_enabled()
+        try:
+            return {"variants": list_variant_records()}
+        except GrammarVariantControlPlaneError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.get("/grammar-variants/{variant_id}")
+    def inspect_grammar_variant(variant_id: str) -> dict:
+        _require_llm_variant_control_plane_enabled()
+        try:
+            return variant_detail(variant_id)
+        except GrammarVariantControlPlaneError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/grammar-variants/{variant_id}/activate")
+    def activate_grammar_variant(variant_id: str) -> dict:
+        _require_llm_variant_control_plane_enabled()
+        try:
+            return {"variant": activate_variant(variant_id)}
+        except GrammarVariantControlPlaneError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     return app
 
