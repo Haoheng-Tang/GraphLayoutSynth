@@ -14,12 +14,14 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - Graph backend: NetworkX
 - Config: YAML, default `configs/generic_building.yaml`
 - Config-contract layer: `ConfigContract` derived from the active YAML config.
+- Optional FastAPI integration: `GET /health`, `POST /suggest-next-room`, and feature-gated grammar-variant control-plane endpoints.
 - CLI commands:
   - `python -m graph_layout_synth generate`
   - `python -m graph_layout_synth validate-config`
   - `python -m graph_layout_synth propose-grammar-variant`
   - `python -m graph_layout_synth archive-final`
   - `python -m graph_layout_synth evaluate-llm`
+- `POST /suggest-next-room` uses static config by default, can use `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` for env-config compatibility, and can use an activated validated variant when `GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant`.
 - Generation uses a seed graph and stochastic YAML `grammar_rules` when present.
 - Validators, grammar-variant prompts, semantic room-mix checks, and typed accessibility context should consume the live config contract rather than duplicating vocabulary assumptions.
 - Grammar rules support simple exact node-attribute matching, created-node aliases, fixed counts, min/max counts, choice sampling, matched-node updates, optional matched-node removal, and edge modes `one_to_one`, `each_to_one`, `one_to_each`, `adjacent_pairs`.
@@ -28,6 +30,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - Diversity and novelty metrics use feature vectors extracted from candidate review summaries, not raw graph edit distance, and do not alter deterministic ranking.
 - Final-output archiving is explicit and selection-file based; archive entries represent accepted final outputs, not all generated candidates.
 - Optional Claude grammar-variant assistance proposes complete YAML config variants only; generated YAML must validate before normal generation.
+- Optional HTTP grammar-variant control plane is disabled by default with `GRAPHLAYOUTSYNTH_ENABLE_LLM_VARIANTS`; it stores structured variant artifacts, a registry, and an active validated variant pointer under `outputs/llm_variants/`.
 - Outputs include candidate graph JSON, candidate reports, trace JSON/markdown, review summary JSON, `diversity_report.json`, optional `final_output_archive.json`, `ranking_report.json`, `ranking_report.csv`, and optional PNG visualizations.
 - Optional Claude evaluation reads deterministic reports and writes markdown.
 - Optional Claude grammar-variant assistance reads config/report/archive context and proposes complete YAML config variants that must validate before generation.
@@ -48,6 +51,9 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - `diversity.py`: diversity feature extraction, normalized pairwise distance, archive novelty, and feature-bin coverage metrics.
 - `archive.py`: explicit final-output archive utilities using LLM/manual selection files and candidate review summaries.
 - `grammar_variant_assistant.py`: optional Claude prompt, YAML extraction, validation, and artifact-writing helpers for grammar/config variants.
+- `grammar_variant_control_plane.py`: feature-gated HTTP service helpers for structured variant proposal artifacts, registry records, validation reports, activation, and active-variant config lookup.
+- `graph_layout_synth/api/`: NextRoomPredictor request models, floorplan adapter, semantic matching, neighbor aggregation, sampler config selection, predictor service, and optional suggestion debug artifacts.
+- `server/main.py`: FastAPI application exposing health, next-room suggestions, and feature-gated grammar variant endpoints.
 - `export.py`: node-link graph JSON, candidate reports, ranking JSON, and ranking CSV.
 - `visualize.py`: static Matplotlib PNG graph visualization.
 - `llm_evaluator.py`: optional Claude interpretation; never replaces deterministic ranking.
@@ -133,6 +139,30 @@ python -m graph_layout_synth propose-grammar-variant \
   --no-call
 ```
 
+Optional local API:
+
+```bash
+python -m uvicorn server.main:app --reload --port 8000
+```
+
+Feature-gated grammar-variant control plane:
+
+```bash
+GRAPHLAYOUTSYNTH_ENABLE_LLM_VARIANTS=true \
+GRAPHLAYOUTSYNTH_LLM_VARIANT_DIR=outputs/llm_variants \
+python -m uvicorn server.main:app --reload --port 8000
+```
+
+Suggestion config modes:
+
+```bash
+GRAPHLAYOUTSYNTH_GRAMMAR_MODE=static
+GRAPHLAYOUTSYNTH_GRAMMAR_MODE=env_config
+GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant
+```
+
+If `GRAPHLAYOUTSYNTH_GRAMMAR_MODE` is omitted, preserve compatibility: use `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` when set, otherwise use `configs/generic_building.yaml`.
+
 ## Secrets And Outputs
 
 - `.env.local` stores `ANTHROPIC_API_KEY`.
@@ -163,6 +193,20 @@ Typical generated files:
 - `top_<rank>_candidate_<n>_trace.md`
 - optional `best_candidate.png` and `top_<rank>_candidate_<n>.png`
 - optional `llm_evaluation.md`
+- optional `llm_grammar_variant.yaml`, `llm_grammar_variant.invalid.yaml`, `llm_grammar_variant_raw.md`, and `llm_grammar_variant_rationale.md`
+- optional `llm_variants/registry.json`
+- optional `llm_variants/active_variant.json`
+- optional `llm_variants/<variant_id>/metadata.json`
+- optional `llm_variants/<variant_id>/heuristic_instructions.md`
+- optional `llm_variants/<variant_id>/base_config_path.txt`
+- optional `llm_variants/<variant_id>/prompt.md`
+- optional `llm_variants/<variant_id>/raw_llm_response.md`
+- optional `llm_variants/<variant_id>/extracted_variant.yaml`
+- optional `llm_variants/<variant_id>/validated_variant.yaml`
+- optional `llm_variants/<variant_id>/invalid_variant.yaml`
+- optional `llm_variants/<variant_id>/validation_report.json`
+- optional `llm_variants/<variant_id>/rationale.md`
+- optional `nextroom_suggestions/<run_id>/` debug artifact runs
 
 ## Guardrails
 
@@ -170,6 +214,8 @@ Typical generated files:
 - Do not use disposed spike/demo branches as a base or source of truth.
 - Do not replace deterministic ranking with LLM ranking.
 - Do not make live LLM API calls in tests.
+- Do not make `/suggest-next-room` call the LLM directly; suggestions must use normal graph generation plus deterministic semantic matching/aggregation.
+- Do not let invalid, failed, or dry-run variants activate. Only validated configs should be referenced by `active_variant.json`.
 - Do not add heavy dependencies unless requested.
 - Do not implement geometry, OR-Tools, a web UI, deep learning, or product features unless explicitly requested.
 - Do not change generation, ranking, visualization, LLM evaluation, config behavior, or tests on documentation-only branches unless an obvious docs-related fix requires it.
@@ -193,6 +239,8 @@ Typical generated files:
 - LLM-generated YAML must be validated before it is used for generation.
 - Invalid LLM-generated YAML should be saved separately, such as `*.invalid.yaml`, and must not be used for generation.
 - Do not overwrite baseline configs with LLM-generated variants; save variants under `outputs/` or a dedicated variants directory.
+- Keep grammar-variant HTTP endpoints feature-gated. Static `/suggest-next-room` must work without LLM dependencies, API keys, registry files, or active variant state.
+- If active-variant mode has no valid active pointer, fail explicitly rather than silently falling back to static config.
 - When asking Claude for room-mix changes, prefer config-defined `room_mix_targets` and `semantic_node_groups`; use a structured YAML/JSON file through `--variant-requirements` only for run-specific overrides.
 - The current config contract drives prompt text and semantic room-mix validation parameters. Keep `docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.yaml` aligned only if it is still used as an override artifact.
 

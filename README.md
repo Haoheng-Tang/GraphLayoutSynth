@@ -72,6 +72,11 @@ The service exposes:
 
 - `GET /health`
 - `POST /suggest-next-room`
+- optional feature-gated grammar variant endpoints:
+  - `POST /grammar-variants/propose`
+  - `GET /grammar-variants`
+  - `GET /grammar-variants/{variant_id}`
+  - `POST /grammar-variants/{variant_id}/activate`
 
 NextRoomPredictor should call the suggestion endpoint only when the user clicks a `+` handle. The v1 API predicts semantic/topological neighbor room types; it does not accept a required `side` or direction and does not return geometry. The frontend keeps responsibility for clicked-side placement and overlap validation.
 
@@ -82,6 +87,7 @@ test against a generated grammar variant, set the config path before starting
 the API:
 
 ```powershell
+$env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "env_config"
 $env:GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG = "outputs/llm_grammar_variant.yaml"
 python -m uvicorn server.main:app --reload --port 8000
 ```
