@@ -194,14 +194,23 @@ Example response:
       "sampleCount": 30,
       "sampleShare": 0.6,
       "confidence": 0.6,
-      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 30 of 50 generated graph samples."
+      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 30 of 50 generated graph samples. Dominant connection type: door.",
+      "edgeType": "door",
+      "edgeTypeCounts": {
+        "door": 28,
+        "wall": 2
+      }
     },
     {
       "roomType": "StaffSupport",
       "sampleCount": 10,
       "sampleShare": 0.2,
       "confidence": 0.2,
-      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 10 of 50 generated graph samples."
+      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 10 of 50 generated graph samples. Dominant connection type: wall.",
+      "edgeType": "wall",
+      "edgeTypeCounts": {
+        "wall": 10
+      }
     }
   ],
   "sampleCount": 50,
@@ -214,6 +223,13 @@ remains between zero and one. Known input relations are excluded through
 multiset subtraction over `(neighbor room type, edge type)`. A generated match
 with a higher count of a known relation can therefore still produce that room
 type as an extra candidate.
+
+Suggestions may include `edgeType`, the dominant observed connection type for
+that room type, plus `edgeTypeCounts` with observed `door` and `wall` support.
+NextRoomPredictor should use `edgeType` when creating the new adjacency edge.
+If `edgeType` is missing, it may fall back to its current default behavior.
+The backend still does not return geometry, side, direction, placement, or
+collision information.
 
 The top-level `sampleCount` reports the number of samples actually returned by the sampler. If no candidate neighbor types are found, `suggestions` is an empty array.
 
@@ -361,6 +377,12 @@ its suggestion `sampleCount` is 18.
 The top-level `sampleCount` remains the number of generated graphs actually
 processed. Suggestion `sampleShare` is its graph-level support count divided by
 that top-level count.
+
+For edge-type evidence, GraphLayoutSynth counts observed `door` and `wall`
+relations for each suggested room type using the same generated-sample
+boundary. If both edge types have equal support, the dominant `edgeType`
+prefers `door`. Missing or unknown generated edge types are ignored for
+edge-type counting.
 
 A graph with no matching nodes contributes nothing. If no generated graphs
 contain a match, the endpoint returns an empty suggestion list so the frontend

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from graph_layout_synth.api.adapter import floorplan_to_graph
 from graph_layout_synth.api.matching_node_neighbor_aggregation import (
-    aggregate_candidates_from_matching_nodes,
+    aggregate_candidate_evidence_from_matching_nodes,
     build_suggestions_from_counts,
 )
 from graph_layout_synth.api.models import (
@@ -45,7 +45,7 @@ class NextRoomPredictor:
             request.sample_count,
         )
         actual_sample_count = len(generated_graphs)
-        counts = aggregate_candidates_from_matching_nodes(
+        candidate_evidence = aggregate_candidate_evidence_from_matching_nodes(
             adapted.graph,
             anchor_node_id,
             generated_graphs,
@@ -55,9 +55,10 @@ class NextRoomPredictor:
             anchor_node_id,
         )
         suggestions = build_suggestions_from_counts(
-            counts,
+            candidate_evidence.room_type_counts,
             actual_sample_count,
             anchor_type,
+            candidate_evidence.edge_type_counts_by_room_type,
         )
         response = SuggestNextRoomResponse(
             suggestions=suggestions,

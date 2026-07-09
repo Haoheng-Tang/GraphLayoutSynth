@@ -104,6 +104,8 @@ class NextRoomTypeSuggestion(ApiModel):
     sample_share: float = Field(ge=0, le=1)
     confidence: float = Field(ge=0, le=1)
     reason: str | None = None
+    edge_type: Literal["door", "wall"] | None = None
+    edge_type_counts: dict[Literal["door", "wall"], int] | None = None
 
 
 class SuggestNextRoomResponse(ApiModel):
