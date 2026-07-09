@@ -22,6 +22,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
   - `python -m graph_layout_synth archive-final`
   - `python -m graph_layout_synth evaluate-llm`
 - `POST /suggest-next-room` uses static config by default, can use `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` for env-config compatibility, and can use an activated validated variant when `GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant`.
+- `POST /suggest-next-room` aggregates suggestions by `roomType` and may include optional `edgeType` and `edgeTypeCounts` fields for the dominant generated `door`/`wall` connection evidence. `door` wins edge-type ties.
 - Generation uses a seed graph and stochastic YAML `grammar_rules` when present.
 - Validators, grammar-variant prompts, semantic room-mix checks, and typed accessibility context should consume the live config contract rather than duplicating vocabulary assumptions.
 - Grammar rules support simple exact node-attribute matching, created-node aliases, fixed counts, min/max counts, choice sampling, matched-node updates, optional matched-node removal, and edge modes `one_to_one`, `each_to_one`, `one_to_each`, `adjacent_pairs`.
@@ -52,7 +53,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - `archive.py`: explicit final-output archive utilities using LLM/manual selection files and candidate review summaries.
 - `grammar_variant_assistant.py`: optional Claude prompt, YAML extraction, validation, and artifact-writing helpers for grammar/config variants.
 - `grammar_variant_control_plane.py`: feature-gated HTTP service helpers for structured variant proposal artifacts, registry records, validation reports, activation, and active-variant config lookup.
-- `graph_layout_synth/api/`: NextRoomPredictor request models, floorplan adapter, semantic matching, neighbor aggregation, sampler config selection, predictor service, and optional suggestion debug artifacts.
+- `graph_layout_synth/api/`: NextRoomPredictor request/response models, floorplan adapter, semantic matching, matching-node neighbor and edge-type aggregation, sampler config selection, predictor service, and optional suggestion debug artifacts.
 - `server/main.py`: FastAPI application exposing health, next-room suggestions, and feature-gated grammar variant endpoints.
 - `export.py`: node-link graph JSON, candidate reports, ranking JSON, and ranking CSV.
 - `visualize.py`: static Matplotlib PNG graph visualization.
@@ -215,6 +216,7 @@ Typical generated files:
 - Do not replace deterministic ranking with LLM ranking.
 - Do not make live LLM API calls in tests.
 - Do not make `/suggest-next-room` call the LLM directly; suggestions must use normal graph generation plus deterministic semantic matching/aggregation.
+- Do not redesign `/suggest-next-room` to return geometry, side, direction, placement, or collision results. Optional `edgeType` is connection-type guidance only; clicked-side placement and room geometry remain frontend responsibilities.
 - Do not let invalid, failed, or dry-run variants activate. Only validated configs should be referenced by `active_variant.json`.
 - Do not add heavy dependencies unless requested.
 - Do not implement geometry, OR-Tools, a web UI, deep learning, or product features unless explicitly requested.
