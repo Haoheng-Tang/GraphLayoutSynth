@@ -120,6 +120,16 @@ class GrammarVariantProposeRequest(ApiModel):
     heuristic_instructions: str = Field(min_length=1)
     base_config_path: str | None = None
     variant_requirements: dict[str, Any] | None = None
+    program_requirements: dict[str, Any] | None = None
+    constraint_profile: dict[str, Any] | None = None
     activate_if_valid: bool = Field(default=False, strict=True)
     dry_run: bool = Field(default=False, strict=True)
     model: str | None = None
+
+
+class ProgramRequirementsValidateRequest(ApiModel):
+    """Request for deterministic program-requirements preflight validation."""
+
+    program_requirements: dict[str, Any]
+    base_config_path: str | None = None
+    constraint_profile: dict[str, Any] | None = None

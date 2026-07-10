@@ -21,7 +21,16 @@ import graph_layout_synth.grammar_variant_assistant as assistant
 from graph_layout_synth.config import DEFAULT_CONFIG_PATH
 from graph_layout_synth.config_contract import build_config_contract
 from graph_layout_synth.config_validator import validate_config_file
+from graph_layout_synth.generation_constraint_profile import (
+    ConstraintProfileError,
+    parse_constraint_profile,
+)
 from graph_layout_synth.llm_evaluator import load_llm_environment
+from graph_layout_synth.program_preflight import run_program_preflight
+from graph_layout_synth.program_requirements import (
+    parse_program_requirements,
+    program_requirements_to_design_intent,
+)
 
 
 ENABLE_LLM_VARIANTS_ENV = "GRAPHLAYOUTSYNTH_ENABLE_LLM_VARIANTS"
@@ -243,6 +252,8 @@ def propose_variant_from_instructions(
     base_config_path: str | Path = DEFAULT_CONFIG_PATH,
     output_root: str | Path | None = None,
     variant_requirements: dict[str, Any] | None = None,
+    program_requirements: dict[str, Any] | None = None,
+    constraint_profile: dict[str, Any] | None = None,
     model: str | None = None,
     dry_run: bool = False,
     activate_if_valid: bool = False,
@@ -286,6 +297,14 @@ def propose_variant_from_instructions(
         base_config = _read_yaml_mapping(base_path)
         assistant.validate_variant_yaml_text(yaml.safe_dump(base_config, sort_keys=False))
         base_contract = build_config_contract(base_config)
+        program_design_intent = _preflight_program_requirements(
+            root,
+            artifact_dir,
+            metadata,
+            base_config,
+            program_requirements,
+            constraint_profile,
+        )
         normalized_requirements = (
             assistant.validate_variant_requirements(variant_requirements, contract=base_contract)
             if variant_requirements
@@ -297,7 +316,7 @@ def propose_variant_from_instructions(
         )
         design_intent = "\n\n".join(
             part
-            for part in (requirements_design_intent, heuristic_instructions.strip())
+            for part in (program_design_intent, requirements_design_intent, heuristic_instructions.strip())
             if part
         )
         grammar_skills_text = GRAMMAR_SKILLS_PATH.read_text(encoding="utf-8")
@@ -419,6 +438,60 @@ def propose_variant_from_instructions(
             status="failed",
             raise_error=True,
         )
+
+
+def _preflight_program_requirements(
+    root: Path,
+    artifact_dir: Path,
+    metadata: dict[str, Any],
+    base_config: dict[str, Any],
+    program_requirements: dict[str, Any] | None,
+    constraint_profile: dict[str, Any] | None,
+) -> str | None:
+    """Deterministically validate optional program requirements before any Claude call.
+
+    Saves preflight artifacts, records the outcome in metadata, and raises a
+    controlled failure (recorded, no LLM call) when validation has errors.
+    Returns design-intent text for the validated requirements otherwise.
+    """
+    if program_requirements is None:
+        return None
+    submitted_path = artifact_dir / "submitted_program_requirements.json"
+    _write_json(submitted_path, program_requirements)
+    metadata["artifacts"]["submittedProgramRequirements"] = str(submitted_path)
+
+    try:
+        profile = parse_constraint_profile(constraint_profile)
+    except ConstraintProfileError as exc:
+        _fail_with_record(root, artifact_dir, metadata, str(exc), status="failed", raise_error=True)
+        raise  # defensive; _fail_with_record always raises when raise_error is true
+    profile_path = artifact_dir / "program_constraint_profile.yaml"
+    _write_text(profile_path, yaml.safe_dump(profile.to_dict(), sort_keys=False))
+    metadata["artifacts"]["programConstraintProfile"] = str(profile_path)
+
+    result = run_program_preflight(program_requirements, raw_config=base_config, profile=profile)
+    validation_path = artifact_dir / "program_requirements_validation.json"
+    _write_json(validation_path, result.to_dict())
+    metadata["artifacts"]["programRequirementsValidation"] = str(validation_path)
+    metadata["programRequirementsValidation"] = {
+        "valid": result.valid,
+        "feasibility": result.feasibility,
+        "errorCount": len(result.errors),
+        "warningCount": len(result.warnings),
+    }
+
+    requirements, _ = parse_program_requirements(program_requirements)
+    if requirements is not None:
+        normalized_path = artifact_dir / "program_requirements.yaml"
+        _write_text(normalized_path, yaml.safe_dump(requirements.to_dict(), sort_keys=False))
+        metadata["artifacts"]["programRequirements"] = str(normalized_path)
+
+    if not result.valid:
+        error_summary = "Program requirements preflight failed: " + "; ".join(
+            issue.message for issue in result.errors
+        )
+        _fail_with_record(root, artifact_dir, metadata, error_summary, status="failed", raise_error=True)
+    return program_requirements_to_design_intent(requirements) if requirements is not None else None
 
 
 def _fail_with_record(

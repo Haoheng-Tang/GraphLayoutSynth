@@ -13,11 +13,13 @@ from fastapi.responses import JSONResponse
 
 from graph_layout_synth.api.models import (
     GrammarVariantProposeRequest,
+    ProgramRequirementsValidateRequest,
     SuggestNextRoomRequest,
     SuggestNextRoomResponse,
 )
 from graph_layout_synth.api.predictor import NextRoomPredictor
 from graph_layout_synth.config import DEFAULT_CONFIG_PATH
+from graph_layout_synth.generation_constraint_profile import ConstraintProfileError, parse_constraint_profile
 from graph_layout_synth.grammar_variant_control_plane import (
     GrammarVariantControlPlaneError,
     activate_variant,
@@ -26,6 +28,8 @@ from graph_layout_synth.grammar_variant_control_plane import (
     propose_variant_from_instructions,
     variant_detail,
 )
+from graph_layout_synth.program_preflight import load_raw_config_mapping, run_program_preflight
+from graph_layout_synth.program_requirements import ProgramRequirementsError
 
 
 LOGGER = logging.getLogger(__name__)
@@ -89,6 +93,23 @@ def create_app(predictor: NextRoomPredictor | None = None) -> FastAPI:
                 detail="Next-room prediction failed.",
             ) from exc
 
+    @app.post("/program-requirements/validate")
+    def validate_program_requirements(
+        request: ProgramRequirementsValidateRequest,
+    ) -> dict:
+        """Deterministic preflight validation; never calls the LLM or generates graphs."""
+        try:
+            profile = parse_constraint_profile(request.constraint_profile)
+            raw_config = load_raw_config_mapping(request.base_config_path or DEFAULT_CONFIG_PATH)
+            result = run_program_preflight(
+                request.program_requirements,
+                raw_config=raw_config,
+                profile=profile,
+            )
+        except (ProgramRequirementsError, ConstraintProfileError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return result.to_dict()
+
     def _require_llm_variant_control_plane_enabled() -> None:
         if not llm_variant_control_plane_enabled():
             raise HTTPException(
@@ -109,6 +130,8 @@ def create_app(predictor: NextRoomPredictor | None = None) -> FastAPI:
                 heuristic_instructions=request.heuristic_instructions,
                 base_config_path=request.base_config_path or DEFAULT_CONFIG_PATH,
                 variant_requirements=request.variant_requirements,
+                program_requirements=request.program_requirements,
+                constraint_profile=request.constraint_profile,
                 model=request.model,
                 dry_run=request.dry_run,
                 activate_if_valid=request.activate_if_valid,

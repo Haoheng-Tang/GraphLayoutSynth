@@ -231,26 +231,52 @@ def _estimated_zone_count_range(config: dict[str, Any]) -> tuple[int, int]:
     return (1, 1)
 
 
-def _room_mix_reachable_ranges(config: dict[str, Any], room_mix_targets: dict[str, Any]) -> dict[str, dict[str, int]]:
-    if not room_mix_targets or room_mix_targets.get("enabled", True) is False:
-        return {}
-    expected_counts = room_mix_targets.get("expected_room_type_counts", {})
-    if not isinstance(expected_counts, dict) or not expected_counts:
-        return {}
+def _rule_create_node_entries(rule: dict[str, Any]) -> list[dict[str, Any]]:
+    action = rule.get("action")
+    if not isinstance(action, dict):
+        return []
+    entries = action.get("create_nodes")
+    if not isinstance(entries, list):
+        return []
+    return [entry for entry in entries if isinstance(entry, dict)]
 
+
+def grammar_created_node_types(config: dict[str, Any]) -> list[str]:
+    """Return every node type any grammar rule can create, including choices."""
+    created: list[str] = []
+    rules = config.get("grammar_rules", [])
+    if not isinstance(rules, list):
+        return created
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        for entry in _rule_create_node_entries(rule):
+            created.extend(_type_values(entry.get("type")))
+    return _unique(created)
+
+
+def reachable_room_count_ranges(
+    config: dict[str, Any],
+    room_types: list[str] | None = None,
+) -> dict[str, dict[str, int]]:
+    """Estimate reachable total-count ranges for zone-rule-created node types.
+
+    Ranges combine the estimated zone-count range with per-zone create counts.
+    Only exact (non-choice) type specs in the Zone rule produce a range;
+    stochastic choice types have no computable range and are omitted.
+    """
     zone_rule = _find_rule(config, "Zone")
     if not zone_rule:
         return {}
     zone_min, zone_max = _estimated_zone_count_range(config)
+    requested = set(room_types) if room_types is not None else None
     per_zone_ranges: dict[str, tuple[int, int]] = {}
-    for entry in zone_rule.get("action", {}).get("create_nodes", []):
-        if not isinstance(entry, dict):
-            continue
+    for entry in _rule_create_node_entries(zone_rule):
         values = _type_values(entry.get("type"))
         if len(values) != 1:
             continue
         node_type = values[0]
-        if node_type not in expected_counts:
+        if requested is not None and node_type not in requested:
             continue
         count_min, count_max = _count_range(entry.get("count", 1))
         previous_min, previous_max = per_zone_ranges.get(node_type, (0, 0))
@@ -263,6 +289,15 @@ def _room_mix_reachable_ranges(config: dict[str, Any], room_mix_targets: dict[st
         }
         for node_type, count_range in sorted(per_zone_ranges.items())
     }
+
+
+def _room_mix_reachable_ranges(config: dict[str, Any], room_mix_targets: dict[str, Any]) -> dict[str, dict[str, int]]:
+    if not room_mix_targets or room_mix_targets.get("enabled", True) is False:
+        return {}
+    expected_counts = room_mix_targets.get("expected_room_type_counts", {})
+    if not isinstance(expected_counts, dict) or not expected_counts:
+        return {}
+    return reachable_room_count_ranges(config, [key for key in expected_counts if isinstance(key, str)])
 
 
 def _validate_known_node_types(

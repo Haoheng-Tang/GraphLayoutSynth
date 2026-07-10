@@ -48,8 +48,21 @@ from graph_layout_synth.grammar_variant_assistant import (
     variant_requirements_to_design_intent,
     write_variant_outputs,
 )
+from graph_layout_synth.generation_constraint_profile import (
+    ConstraintProfileError,
+    default_constraint_profile,
+    load_constraint_profile,
+)
 from graph_layout_synth.llm_evaluator import LlmEvaluationError, evaluate_candidates_with_llm
 from graph_layout_synth.llm_evaluator import DEFAULT_CLAUDE_MODEL, load_llm_environment
+from graph_layout_synth.program_preflight import (
+    export_program_requirements_validation_report,
+    validate_program_requirements_file,
+)
+from graph_layout_synth.program_requirements import (
+    ProgramRequirementsError,
+    program_requirements_to_design_intent,
+)
 from graph_layout_synth.ranking import rank_candidates
 from graph_layout_synth.review_summary import (
     build_candidate_pool_summary,
@@ -87,6 +100,20 @@ def build_parser() -> argparse.ArgumentParser:
     validate_config.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     validate_config.add_argument("--output", type=Path, default=None)
 
+    validate_program = subparsers.add_parser(
+        "validate-program-requirements",
+        help="Preflight-validate user program requirements without the LLM or generation.",
+    )
+    validate_program.add_argument("--requirements", type=Path, required=True)
+    validate_program.add_argument("--base-config", type=Path, default=DEFAULT_CONFIG_PATH)
+    validate_program.add_argument(
+        "--constraints",
+        type=Path,
+        default=None,
+        help="Optional internal constraint profile YAML; defaults to the built-in profile.",
+    )
+    validate_program.add_argument("--output", type=Path, default=None)
+
     evaluate_llm = subparsers.add_parser(
         "evaluate-llm",
         help="Use Claude to interpret deterministic ranking reports.",
@@ -116,6 +143,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     propose_variant.add_argument("--base-config", type=Path, default=DEFAULT_CONFIG_PATH)
     propose_variant.add_argument("--variant-requirements", type=Path, default=None)
+    propose_variant.add_argument(
+        "--program-requirements",
+        type=Path,
+        default=None,
+        help="Optional user program requirements YAML/JSON; preflight-validated before any Claude call.",
+    )
+    propose_variant.add_argument(
+        "--program-constraints",
+        type=Path,
+        default=None,
+        help="Optional internal constraint profile YAML for the program-requirements preflight.",
+    )
     propose_variant.add_argument("--design-intent", default=None)
     propose_variant.add_argument("--design-intent-file", type=Path, default=None)
     propose_variant.add_argument("--diversity-report", type=Path, default=None)
@@ -371,6 +410,52 @@ def run_validate_config(args: argparse.Namespace) -> None:
     raise SystemExit(1)
 
 
+def _print_program_requirement_issues(issues: list) -> None:
+    for issue in issues:
+        location = f" ({issue.path})" if issue.path else ""
+        print(f"- [{issue.severity}] {issue.code}{location}: {issue.message}")
+        if issue.suggestion:
+            print(f"  Suggestion: {issue.suggestion}")
+
+
+def run_validate_program_requirements(args: argparse.Namespace) -> None:
+    """Deterministically preflight user program requirements."""
+    try:
+        profile = load_constraint_profile(args.constraints) if args.constraints else default_constraint_profile()
+        _requirements, result = validate_program_requirements_file(
+            args.requirements,
+            args.base_config,
+            profile=profile,
+        )
+    except (ProgramRequirementsError, ConstraintProfileError) as exc:
+        raise SystemExit(str(exc)) from exc
+
+    if args.output:
+        export_program_requirements_validation_report(
+            result,
+            args.output,
+            extra={
+                "requirementsPath": str(args.requirements),
+                "baseConfigPath": str(args.base_config),
+                "constraintProfile": profile.to_dict(),
+            },
+        )
+        print(f"Validation report: {args.output}.")
+
+    print(f"Requirements: {args.requirements}.")
+    print(f"Base config: {args.base_config}.")
+    print(f"Feasibility: {result.feasibility}.")
+    if result.errors:
+        print("Errors:")
+        _print_program_requirement_issues(result.errors)
+    if result.warnings:
+        print("Warnings:")
+        _print_program_requirement_issues(result.warnings)
+    if not result.valid:
+        raise SystemExit(1)
+    print("Program requirements are valid.")
+
+
 def run_evaluate_llm(args: argparse.Namespace) -> None:
     """Run optional Claude interpretation over ranking reports."""
     try:
@@ -463,9 +548,60 @@ def _merged_design_intent(
     return "\n\n".join(parts) or None
 
 
+def _run_program_requirements_preflight(args: argparse.Namespace) -> str | None:
+    """Validate optional program requirements before any Claude call.
+
+    Returns deterministic design-intent text for the validated requirements,
+    or ``None`` when no program requirements were supplied. Exits nonzero on
+    validation errors so infeasible programs never reach the LLM.
+    """
+    if not args.program_requirements:
+        return None
+    profile = (
+        load_constraint_profile(args.program_constraints)
+        if args.program_constraints
+        else default_constraint_profile()
+    )
+    requirements, result = validate_program_requirements_file(
+        args.program_requirements,
+        args.base_config,
+        profile=profile,
+    )
+    report_path = args.output_config.parent / f"{args.output_config.stem}_program_validation.json"
+    export_program_requirements_validation_report(
+        result,
+        report_path,
+        extra={
+            "requirementsPath": str(args.program_requirements),
+            "baseConfigPath": str(args.base_config),
+            "constraintProfile": profile.to_dict(),
+        },
+    )
+    print(f"Program requirements validation report: {report_path}.")
+    if requirements is not None:
+        normalized_path = args.output_config.parent / f"{args.output_config.stem}_program_requirements.yaml"
+        normalized_path.parent.mkdir(parents=True, exist_ok=True)
+        normalized_path.write_text(
+            yaml.safe_dump(requirements.to_dict(), sort_keys=False),
+            encoding="utf-8",
+        )
+        print(f"Normalized program requirements: {normalized_path}.")
+    if result.warnings:
+        print("Program requirements warnings:")
+        _print_program_requirement_issues(result.warnings)
+    if not result.valid:
+        print("Program requirements preflight failed; no Claude call was made.")
+        print("Errors:")
+        _print_program_requirement_issues(result.errors)
+        raise SystemExit(1)
+    print(f"Program requirements feasibility: {result.feasibility}.")
+    return program_requirements_to_design_intent(requirements)
+
+
 def run_propose_grammar_variant(args: argparse.Namespace) -> None:
     """Use Claude to propose a validated YAML config variant."""
     try:
+        program_design_intent = _run_program_requirements_preflight(args)
         base_config = _read_yaml_mapping(args.base_config)
         validate_variant_yaml_text(yaml.safe_dump(base_config, sort_keys=False))
         base_contract = build_config_contract(base_config)
@@ -479,11 +615,14 @@ def run_propose_grammar_variant(args: argparse.Namespace) -> None:
         requirements_room_mix_kwargs = room_mix_kwargs_from_requirements(variant_requirements, contract=base_contract)
         contract_room_mix_kwargs = room_mix_kwargs_from_contract(base_contract)
         effective_room_mix_kwargs = requirements_room_mix_kwargs or contract_room_mix_kwargs
+        combined_requirements_intent = (
+            "\n\n".join(part for part in (program_design_intent, requirements_design_intent) if part) or None
+        )
         prompt = build_grammar_variant_prompt(
             base_config,
             grammar_skills_text,
             design_intent=_merged_design_intent(
-                requirements_design_intent,
+                combined_requirements_intent,
                 args.design_intent,
                 args.design_intent_file,
             ),
@@ -551,7 +690,14 @@ def run_propose_grammar_variant(args: argparse.Namespace) -> None:
             args.output_config,
             args.rationale_output,
         )
-    except (GrammarVariantError, FileNotFoundError, json.JSONDecodeError, yaml.YAMLError) as exc:
+    except (
+        GrammarVariantError,
+        ProgramRequirementsError,
+        ConstraintProfileError,
+        FileNotFoundError,
+        json.JSONDecodeError,
+        yaml.YAMLError,
+    ) as exc:
         raise SystemExit(str(exc)) from exc
 
     print(f"Saved grammar config variant to {args.output_config}.")
@@ -569,6 +715,8 @@ def main(argv: list[str] | None = None) -> None:
         run_generate(args)
     elif args.command == "validate-config":
         run_validate_config(args)
+    elif args.command == "validate-program-requirements":
+        run_validate_program_requirements(args)
     elif args.command == "evaluate-llm":
         run_evaluate_llm(args)
     elif args.command == "archive-final":

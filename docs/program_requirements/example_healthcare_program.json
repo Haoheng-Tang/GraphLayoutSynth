@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "program": {
+    "roomMix": {
+      "PatientRoom": { "min": 50, "target": 56, "max": 60 },
+      "ClinicalSupport": { "min": 6, "target": 8, "max": 10 },
+      "StaffSupport": { "min": 4, "target": 6, "max": 8 },
+      "Corridor": { "min": 6, "target": 10, "max": 16 }
+    }
+  },
+  "adjacencyPreferences": [
+    { "source": "PatientRoom", "target": "Corridor", "edgeType": "door", "priority": "required" },
+    { "source": "ClinicalSupport", "target": "Corridor", "edgeType": "door", "priority": "preferred" },
+    { "source": "PatientRoom", "target": "PatientRoom", "edgeType": "wall", "priority": "preferred" }
+  ]
+}

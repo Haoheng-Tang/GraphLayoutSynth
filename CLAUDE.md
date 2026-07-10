@@ -34,7 +34,7 @@ python -m graph_layout_synth generate --config configs/generic_building.yaml \
 python -m uvicorn server.main:app --reload --port 8000
 ```
 
-Other CLI commands (`graph_layout_synth/cli.py`): `propose-grammar-variant` (use `--no-call` for a prompt-only dry run that needs no API key), `archive-final`, `evaluate-llm`.
+Other CLI commands (`graph_layout_synth/cli.py`): `validate-program-requirements` (deterministic preflight of user program requirements — no LLM, no generation), `propose-grammar-variant` (use `--no-call` for a prompt-only dry run that needs no API key), `archive-final`, `evaluate-llm`.
 
 `.env.local` at the repo root holds `ANTHROPIC_API_KEY` for LLM commands. Never commit it. Everything under `outputs/` is git-ignored except `outputs/.gitkeep`.
 
@@ -66,6 +66,10 @@ Key separations to preserve:
 The suggestion endpoint's contract is deliberately narrow: it predicts neighbor room types only (with optional `edgeType` guidance) — no geometry, side, direction, or placement, which stay in the NextRoomPredictor frontend. Frontend room IDs stay external; internal node IDs stay private. Contract and integration details live in `docs/contracts/` and `docs/integration/nextroompredictor-api.md`; `docs/PR/` records the design rationale for each merged feature.
 
 Server behavior is controlled by env vars: `GRAPHLAYOUTSYNTH_GRAMMAR_MODE` (`static` default / `env_config` / `active_variant`) selects the suggestion sampler config (CLI generation is unaffected — always pass `--config` there); `GRAPHLAYOUTSYNTH_ENABLE_LLM_VARIANTS` gates the variant control plane (`grammar_variant_control_plane.py`, artifacts under `outputs/llm_variants/`); `GRAPHLAYOUTSYNTH_SAVE_SUGGESTION_ARTIFACTS`/`_PNGS` enable debug artifact saving. Static `/suggest-next-room` must keep working without LLM dependencies, API keys, or variant state; if `active_variant` mode has no valid active pointer, fail explicitly rather than falling back.
+
+### Program requirements preflight
+
+User-facing `ProgramRequirements` (room types with min/target/max counts plus adjacency preferences; `program_requirements.py`) are strictly separated from the backend `GenerationConstraintProfile` (group-size/corridor-degree/relaxation bounds; `generation_constraint_profile.py`) — never expose cluster/group/degree parameters to users, and never accept area/width/height in the v1 schema. `program_preflight.py` deterministically classifies programs as `feasible`, `feasible_with_relaxation`, or `infeasible`, and runs before any LLM variant proposal (CLI `--program-requirements` or `programRequirements` on `POST /grammar-variants/propose`): errors block the Claude call, warnings continue and are saved in artifacts. `POST /program-requirements/validate` exposes the same check for frontend preflight. See `docs/PROGRAM_REQUIREMENTS.md`.
 
 ### LLM variant workflow
 
