@@ -18,10 +18,14 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - CLI commands:
   - `python -m graph_layout_synth generate`
   - `python -m graph_layout_synth validate-config`
+  - `python -m graph_layout_synth validate-program-requirements`
   - `python -m graph_layout_synth propose-grammar-variant`
   - `python -m graph_layout_synth archive-final`
   - `python -m graph_layout_synth evaluate-llm`
+- User-facing `ProgramRequirements` (room types, min/target/max counts, adjacency preferences) are separate from backend `GenerationConstraintProfile` (group size bounds, corridor degree limits, relaxation limits). Users are never asked for cluster/group/degree parameters.
+- A deterministic, LLM-independent program-requirements preflight (`POST /program-requirements/validate` and `validate-program-requirements`) reports `feasible`, `feasible_with_relaxation`, or `infeasible`, and runs before grammar-variant proposal when program requirements are supplied. It validates only; it does not change generation behavior.
 - `POST /suggest-next-room` uses static config by default, can use `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` for env-config compatibility, and can use an activated validated variant when `GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant`.
+- `POST /suggest-next-room` aggregates suggestions by `roomType` and may include optional `edgeType` and `edgeTypeCounts` fields for the dominant generated `door`/`wall` connection evidence. `door` wins edge-type ties.
 - Generation uses a seed graph and stochastic YAML `grammar_rules` when present.
 - Validators, grammar-variant prompts, semantic room-mix checks, and typed accessibility context should consume the live config contract rather than duplicating vocabulary assumptions.
 - Grammar rules support simple exact node-attribute matching, created-node aliases, fixed counts, min/max counts, choice sampling, matched-node updates, optional matched-node removal, and edge modes `one_to_one`, `each_to_one`, `one_to_each`, `adjacent_pairs`.
@@ -50,9 +54,12 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - `review_summary.py`: compact candidate and pool review summaries, including degree, wall-adjacency proxy metrics, and typed accessibility summaries.
 - `diversity.py`: diversity feature extraction, normalized pairwise distance, archive novelty, and feature-bin coverage metrics.
 - `archive.py`: explicit final-output archive utilities using LLM/manual selection files and candidate review summaries.
+- `program_requirements.py`: user-facing program requirements schema, YAML/JSON loaders, and local field validation.
+- `generation_constraint_profile.py`: backend/internal constraint profiles with preferred and hard bounds; not user-facing.
+- `program_preflight.py`: deterministic feasibility preflight combining local validation, config vocabulary, contract reachable ranges, and internal capacity arithmetic.
 - `grammar_variant_assistant.py`: optional Claude prompt, YAML extraction, validation, and artifact-writing helpers for grammar/config variants.
 - `grammar_variant_control_plane.py`: feature-gated HTTP service helpers for structured variant proposal artifacts, registry records, validation reports, activation, and active-variant config lookup.
-- `graph_layout_synth/api/`: NextRoomPredictor request models, floorplan adapter, semantic matching, neighbor aggregation, sampler config selection, predictor service, and optional suggestion debug artifacts.
+- `graph_layout_synth/api/`: NextRoomPredictor request/response models, floorplan adapter, semantic matching, matching-node neighbor and edge-type aggregation, sampler config selection, predictor service, and optional suggestion debug artifacts.
 - `server/main.py`: FastAPI application exposing health, next-room suggestions, and feature-gated grammar variant endpoints.
 - `export.py`: node-link graph JSON, candidate reports, ranking JSON, and ranking CSV.
 - `visualize.py`: static Matplotlib PNG graph visualization.
@@ -102,6 +109,14 @@ Validate a config before generation:
 
 ```bash
 python -m graph_layout_synth validate-config --config configs/generic_building.yaml
+```
+
+Preflight-validate user program requirements (no LLM, no generation):
+
+```bash
+python -m graph_layout_synth validate-program-requirements \
+  --requirements docs/program_requirements/example_healthcare_program.yaml \
+  --base-config configs/generic_building.yaml
 ```
 
 Smoke test generation:
@@ -215,6 +230,7 @@ Typical generated files:
 - Do not replace deterministic ranking with LLM ranking.
 - Do not make live LLM API calls in tests.
 - Do not make `/suggest-next-room` call the LLM directly; suggestions must use normal graph generation plus deterministic semantic matching/aggregation.
+- Do not redesign `/suggest-next-room` to return geometry, side, direction, placement, or collision results. Optional `edgeType` is connection-type guidance only; clicked-side placement and room geometry remain frontend responsibilities.
 - Do not let invalid, failed, or dry-run variants activate. Only validated configs should be referenced by `active_variant.json`.
 - Do not add heavy dependencies unless requested.
 - Do not implement geometry, OR-Tools, a web UI, deep learning, or product features unless explicitly requested.
@@ -228,6 +244,12 @@ Typical generated files:
 - Do not auto-archive generated, best, or top-k candidates. Archive entries represent accepted final outputs only.
 - Prefer the selection-file workflow for archiving. Direct `--review-summary` archiving is secondary for manual/test workflows.
 - Do not update the final-output archive automatically during `generate`; use `archive-final` with explicit selection input.
+- Keep `ProgramRequirements` user-facing fields limited to room types, min/target/max counts, and adjacency preferences. Do not add area/width/height or cluster/group/degree fields to the v1 user-facing schema.
+- Keep `GenerationConstraintProfile` internal. Do not ask users for cluster counts, group sizes, corridor degree limits, or relaxation limits.
+- Run the program-requirements preflight before any LLM variant proposal when program requirements are supplied; errors must block the Claude call, warnings must be saved in artifacts.
+- Keep `POST /program-requirements/validate` free of LLM calls and graph generation.
+- User-facing preflight error messages should avoid internal cluster/group language; put internal capacities in `debugDetails`.
+- Tests must not depend on the developer's real `.env.local` or shell service variables; `tests/conftest.py` clears them before every test. Keep new service env vars listed there.
 - Read `docs/GRAMMAR_CONFIG_SKILLS.md` before modifying or generating YAML grammar configs.
 - Read `docs/GRAMMAR_CONFIG_SKILLS.md` before changing grammar config generation logic.
 - Do not invent unsupported config or grammar-rule fields.

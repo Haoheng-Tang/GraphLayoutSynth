@@ -72,6 +72,7 @@ The service exposes:
 
 - `GET /health`
 - `POST /suggest-next-room`
+- `POST /program-requirements/validate`
 - optional feature-gated grammar variant endpoints:
   - `POST /grammar-variants/propose`
   - `GET /grammar-variants`
@@ -79,6 +80,13 @@ The service exposes:
   - `POST /grammar-variants/{variant_id}/activate`
 
 NextRoomPredictor should call the suggestion endpoint only when the user clicks a `+` handle. The v1 API predicts semantic/topological neighbor room types; it does not accept a required `side` or direction and does not return geometry. The frontend keeps responsibility for clicked-side placement and overlap validation.
+
+Suggestions are still aggregated and ranked by `roomType`. Each suggestion may
+also include optional `edgeType` and `edgeTypeCounts` fields derived from the
+generated extra-neighbor relations. `edgeType` is the dominant observed
+connection type, currently `door` or `wall`, with `door` preferred on ties.
+NextRoomPredictor can use `edgeType` when creating the new adjacency edge; if
+it is missing, existing frontend fallback behavior remains valid.
 
 The default allowed browser origin is `http://localhost:5173`. Add comma-separated local origins with `NEXT_ROOM_ALLOWED_ORIGINS`.
 
@@ -141,6 +149,106 @@ The default config is `configs/generic_building.yaml`. It defines:
 - visualization colors
 
 Pass another YAML file with `--config` to run the same pipeline with different settings.
+
+### Specifying Generation Variants
+
+Users specify generation variants by choosing or producing a complete YAML
+config variant. GraphLayoutSynth does not take raw graph edits or free-form
+layout instructions directly into generation; user intent becomes validated
+YAML, then normal deterministic generation uses that config.
+
+Manual variants usually start by copying `configs/generic_building.yaml` to a
+new file under `outputs/` or another ignored variants directory, editing the
+YAML, validating it, then passing it to `generate`:
+
+```powershell
+python -m graph_layout_synth validate-config --config outputs/my_variant.yaml
+
+python -m graph_layout_synth generate `
+  --config outputs/my_variant.yaml `
+  --num-candidates 50 `
+  --top-k 5 `
+  --seed 44 `
+  --visualize `
+  --output-dir outputs/variant_run_001
+```
+
+LLM-assisted variants use `propose-grammar-variant` to turn structured
+requirements or heuristic instructions into a complete YAML config proposal.
+Use `--no-call` to inspect the prompt without calling Claude:
+
+```powershell
+python -m graph_layout_synth propose-grammar-variant `
+  --base-config configs/generic_building.yaml `
+  --variant-requirements docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.yaml `
+  --write-prompt outputs/grammar_variant_prompt.md `
+  --no-call
+```
+
+For a live proposal, write the validated YAML variant and then use it with
+normal generation:
+
+```powershell
+python -m graph_layout_synth propose-grammar-variant `
+  --base-config configs/generic_building.yaml `
+  --variant-requirements docs/PATIENT_SUPPORT_ROOM_MIX_REQUIREMENTS.yaml `
+  --output-config outputs/llm_grammar_variant.yaml `
+  --rationale-output outputs/llm_grammar_variant_rationale.md `
+  --raw-output outputs/llm_grammar_variant_raw.md
+
+python -m graph_layout_synth generate --config outputs/llm_grammar_variant.yaml
+```
+
+The optional HTTP grammar-variant control plane can also accept
+`heuristicInstructions`, optional `baseConfigPath`, optional structured
+`variantRequirements`, `dryRun`, and `activateIfValid` through
+`POST /grammar-variants/propose`. Activated variants affect API suggestions
+only when the server runs with:
+
+```powershell
+$env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "active_variant"
+```
+
+Important: `GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant` selects the config
+used by the `/suggest-next-room` API sampler. It does not change CLI graph
+generation. For CLI generation, always pass the variant explicitly with
+`--config`.
+
+## Program Requirements Preflight
+
+Users can express program data as a small user-facing YAML/JSON schema:
+room types with `min`/`target`/`max` counts plus optional high-level
+adjacency preferences. Backend generation parameters (local group sizes,
+corridor hub/degree limits, relaxation limits) are internal
+`GenerationConstraintProfile` values and are never asked from users.
+
+A deterministic, LLM-independent preflight validator checks whether the
+requested program is satisfiable under the internal constraint profile and
+the active config vocabulary, and reports one of three feasibility states:
+`feasible`, `feasible_with_relaxation`, or `infeasible`. Counts the current
+static grammar cannot reach are reported as warnings, since that is the case
+a config variant is for.
+
+```powershell
+python -m graph_layout_synth validate-program-requirements `
+  --requirements docs/program_requirements/example_healthcare_program.yaml `
+  --base-config configs/generic_building.yaml `
+  --constraints configs/program_constraint_profiles/default_healthcare.yaml `
+  --output outputs/program_requirements_validation_report.json
+```
+
+The same validation is exposed as `POST /program-requirements/validate` for
+frontend preflight; it never calls the LLM and never generates graphs. When
+program requirements are supplied to `propose-grammar-variant` (via
+`--program-requirements`) or to `POST /grammar-variants/propose` (via
+`programRequirements`), the preflight runs first: errors block the Claude
+call, warnings are recorded in the variant artifacts, and validated
+requirements are added to the prompt as deterministic design intent. This
+feature validates only; it does not change graph generation behavior yet.
+
+See `docs/PROGRAM_REQUIREMENTS.md` for the schema, exclusions (no area,
+width, height, or cluster fields in v1), examples, and feasibility-state
+semantics.
 
 ## Grammar Config Validation
 
@@ -606,9 +714,12 @@ Tests must not make live Anthropic API calls. LLM-related tests should mock or i
 - `graph_layout_synth/review_summary.py`: compact candidate and pool review summaries for human/RAG inspection
 - `graph_layout_synth/diversity.py`: diversity feature extraction, pairwise diversity, archive novelty, and feature-bin coverage
 - `graph_layout_synth/archive.py`: explicit final-output archive creation from selection files or review summaries
+- `graph_layout_synth/program_requirements.py`: user-facing program requirements schema, loaders, and local validation
+- `graph_layout_synth/generation_constraint_profile.py`: backend/internal generation constraint profiles
+- `graph_layout_synth/program_preflight.py`: deterministic program-requirements feasibility preflight
 - `graph_layout_synth/grammar_variant_assistant.py`: optional Claude workflow for proposing validated YAML config variants
 - `graph_layout_synth/export.py`: graph, candidate report, and ranking report export
 - `graph_layout_synth/visualize.py`: static PNG graph visualization
 - `graph_layout_synth/tracing.py`: rule-application trace event and trace export helpers
 - `graph_layout_synth/llm_evaluator.py`: optional Claude interpretation of deterministic reports
-- `graph_layout_synth/cli.py`: `generate`, `validate-config`, `propose-grammar-variant`, `archive-final`, and `evaluate-llm` commands
+- `graph_layout_synth/cli.py`: `generate`, `validate-config`, `validate-program-requirements`, `propose-grammar-variant`, `archive-final`, and `evaluate-llm` commands

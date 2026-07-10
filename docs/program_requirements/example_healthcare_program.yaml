@@ -1,0 +1,47 @@
+# Example user-facing program requirements for GraphLayoutSynth.
+#
+# This file contains real design/program decisions only: room types,
+# min/target/max counts, and high-level adjacency preferences. Backend
+# generation parameters (local group sizes, corridor hub limits, relaxation
+# limits) are internal and never belong in this file.
+#
+# Note: with the default configs/generic_building.yaml, the Corridor counts
+# below intentionally trigger a reachability warning: the current static
+# grammar generates exactly 3 corridors, so meeting a target of 10 corridors
+# requires proposing a validated config variant. Preflight warnings do not
+# block variant proposal; errors do.
+
+schemaVersion: 1
+
+program:
+  roomMix:
+    PatientRoom:
+      min: 50
+      target: 56
+      max: 60
+    ClinicalSupport:
+      min: 6
+      target: 8
+      max: 10
+    StaffSupport:
+      min: 4
+      target: 6
+      max: 8
+    Corridor:
+      min: 6
+      target: 10
+      max: 16
+
+adjacencyPreferences:
+  - source: PatientRoom
+    target: Corridor
+    edgeType: door
+    priority: required
+  - source: ClinicalSupport
+    target: Corridor
+    edgeType: door
+    priority: preferred
+  - source: PatientRoom
+    target: PatientRoom
+    edgeType: wall
+    priority: preferred

@@ -1,0 +1,33 @@
+# Backend/internal generation constraint profile.
+#
+# These are procedural search/generation parameters used by the deterministic
+# program-requirements preflight validator and by future generation
+# algorithms. They are NOT user-facing: users specify room types, counts, and
+# adjacency preferences; they are never asked for cluster counts, group
+# sizes, or corridor degree limits, because those concepts have no stable
+# user-facing semantic meaning yet.
+#
+# This file mirrors the built-in defaults. Omitted sections fall back to the
+# built-in values, so partial profiles are valid.
+
+schemaVersion: 1
+
+locality:
+  patientRoomGroupSize:
+    min: 4
+    preferredMax: 8
+    hardMax: 12
+  localGroupCount:
+    min: 1
+    preferredMax: 8
+    hardMax: 20
+
+corridors:
+  avoidSingleHubCorridor: true
+  corridorDegree:
+    preferredMax: 8
+    hardMax: 16
+  allowCorridorChains: true
+
+generation:
+  maxRelaxationSteps: 3
