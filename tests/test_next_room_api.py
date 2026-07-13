@@ -145,8 +145,10 @@ def test_valid_request_returns_ranked_camel_case_suggestions() -> None:
                 "confidence": 2 / 3,
                 "reason": (
                     "Appeared as an extra neighbor of a semantically matched Corridor "
-                    "in 2 of 3 generated graph samples."
+                    "in 2 of 3 generated graph samples. Dominant connection type: door."
                 ),
+                "edgeType": "door",
+                "edgeTypeCounts": {"door": 2},
             },
             {
                 "roomType": "ClinicalSupport",
@@ -155,8 +157,10 @@ def test_valid_request_returns_ranked_camel_case_suggestions() -> None:
                 "confidence": 1 / 3,
                 "reason": (
                     "Appeared as an extra neighbor of a semantically matched Corridor "
-                    "in 1 of 3 generated graph samples."
+                    "in 1 of 3 generated graph samples. Dominant connection type: door."
                 ),
+                "edgeType": "door",
+                "edgeTypeCounts": {"door": 1},
             },
             {
                 "roomType": "StaffSupport",
@@ -165,8 +169,10 @@ def test_valid_request_returns_ranked_camel_case_suggestions() -> None:
                 "confidence": 1 / 3,
                 "reason": (
                     "Appeared as an extra neighbor of a semantically matched Corridor "
-                    "in 1 of 3 generated graph samples."
+                    "in 1 of 3 generated graph samples. Dominant connection type: door."
                 ),
+                "edgeType": "door",
+                "edgeTypeCounts": {"door": 1},
             },
         ],
         "sampleCount": 3,
@@ -330,6 +336,11 @@ def test_endpoint_aggregates_all_semantic_matches_once_per_graph() -> None:
     ]
     assert all(suggestion["sampleCount"] == 1 for suggestion in suggestions)
     assert all(suggestion["sampleShare"] == 1.0 for suggestion in suggestions)
+    assert all(suggestion["confidence"] == 1.0 for suggestion in suggestions)
+    assert suggestions[0]["edgeType"] == "door"
+    assert suggestions[0]["edgeTypeCounts"] == {"door": 1}
+    assert suggestions[1]["edgeType"] == "door"
+    assert suggestions[1]["edgeTypeCounts"] == {"door": 1, "wall": 1}
 
 
 def test_empty_generator_result_returns_empty_suggestions_and_actual_count() -> None:

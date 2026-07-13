@@ -105,6 +105,11 @@ export type NextRoomTypeSuggestion = {
   sampleShare: number;
   confidence: number;
   reason?: string | null;
+  edgeType?: "door" | "wall";
+  edgeTypeCounts?: {
+    door?: number;
+    wall?: number;
+  };
 };
 
 export type SuggestNextRoomResponse = {
@@ -398,14 +403,23 @@ The backend owns semantic/topological prediction:
       "sampleCount": 30,
       "sampleShare": 0.6,
       "confidence": 0.6,
-      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 30 of 50 generated graph samples."
+      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 30 of 50 generated graph samples. Dominant connection type: door.",
+      "edgeType": "door",
+      "edgeTypeCounts": {
+        "door": 28,
+        "wall": 2
+      }
     },
     {
       "roomType": "StaffSupport",
       "sampleCount": 10,
       "sampleShare": 0.2,
       "confidence": 0.2,
-      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 10 of 50 generated graph samples."
+      "reason": "Appeared as an extra neighbor of a semantically matched Corridor in 10 of 50 generated graph samples. Dominant connection type: wall.",
+      "edgeType": "wall",
+      "edgeTypeCounts": {
+        "wall": 10
+      }
     }
   ],
   "sampleCount": 50,
@@ -421,11 +435,15 @@ The backend owns semantic/topological prediction:
 * `suggestions[].sampleShare`: suggestion `sampleCount` divided by the top-level actual `sampleCount`.
 * `suggestions[].confidence`: currently the same as `sampleShare`; it is not a calibrated safety or compliance probability.
 * `suggestions[].reason`: optional human-readable explanation. Do not parse it for application logic.
+* `suggestions[].edgeType`: optional dominant recommended connection type for the new edge. If present, NextRoomPredictor should use it when creating the new adjacency edge.
+* `suggestions[].edgeTypeCounts`: optional observed `door` and `wall` support counts for that `roomType`. Counts follow the same graph-sample aggregation boundary as room-type support; a room type can have both door and wall evidence in the same sample when multiple semantic matches produce different extra relations.
 * `sampleCount`: number of graph samples actually returned. It may be lower than the requested count.
 * `predictorVersion`: diagnostic backend predictor/version label.
 
 Suggestions are ordered by descending `sampleShare`, with alphabetical
-room-type ordering for ties.
+room-type ordering for ties. When `door` and `wall` support tie for one room
+type, `edgeType` prefers `door`. If `edgeType` is missing, the frontend may
+fall back to its current default edge behavior.
 
 An empty result is successful:
 
@@ -642,7 +660,7 @@ When the user selects a returned `roomType`, NextRoomPredictor must:
 3. Calculate candidate rectangle geometry.
 4. Reject, disable, or adjust overlapping placements.
 5. Create a new stable frontend room ID.
-6. Add the room and its wall/door edge to frontend state.
+6. Add the room and its wall/door edge to frontend state, using returned `edgeType` when present.
 7. Include the updated state in the next API request.
 
 Do not send another prediction request merely to perform placement. This

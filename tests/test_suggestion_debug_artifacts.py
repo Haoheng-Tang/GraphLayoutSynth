@@ -205,8 +205,11 @@ def test_request_flag_saves_complete_debug_artifacts(
                 "confidence": 1.0,
                 "reason": (
                     "Appeared as an extra neighbor of a semantically matched "
-                    "Corridor in 1 of 1 generated graph samples."
+                    "Corridor in 1 of 1 generated graph samples. "
+                    "Dominant connection type: wall."
                 ),
+                "edgeType": "wall",
+                "edgeTypeCounts": {"wall": 1},
             }
         ],
         "predictorVersion": "graphlayoutsynth-v1",

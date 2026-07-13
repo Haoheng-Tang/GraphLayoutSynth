@@ -78,6 +78,7 @@ def create_app(predictor: NextRoomPredictor | None = None) -> FastAPI:
         "/suggest-next-room",
         response_model=SuggestNextRoomResponse,
         response_model_by_alias=True,
+        response_model_exclude_none=True,
     )
     def suggest_next_room(
         request: SuggestNextRoomRequest,
