@@ -59,6 +59,8 @@ class NextRoomPredictor:
             actual_sample_count,
             anchor_type,
             candidate_evidence.edge_type_counts_by_room_type,
+            intended_edge_sample_counts=candidate_evidence.intended_edge_sample_counts,
+            intended_edge_type_counts=candidate_evidence.intended_edge_type_counts,
         )
         response = SuggestNextRoomResponse(
             suggestions=suggestions,

@@ -15,6 +15,8 @@ from uuid import uuid4
 import networkx as nx
 
 from graph_layout_synth.api.matching_node_neighbor_aggregation import (
+    intended_edge_details_for_generated_graph,
+    known_frontend_neighbor_targets,
     subtract_neighbor_signature,
 )
 from graph_layout_synth.api.models import (
@@ -185,6 +187,20 @@ class SuggestionArtifactWriter:
             frontend_graph,
             anchor_node_id,
         )
+        known_neighbor_targets = [
+            {
+                "neighborRoomType": relation[0],
+                "anchorEdgeType": relation[1],
+                "targetRoomId": target[0],
+                "targetRoomType": target[1],
+            }
+            for relation, target in sorted(
+                known_frontend_neighbor_targets(
+                    frontend_graph,
+                    anchor_node_id,
+                ).items()
+            )
+        ]
         graph_reports = []
         for graph_index, generated_graph in enumerate(generated_graphs):
             matching_node_ids = find_matching_anchor_nodes(
@@ -192,6 +208,14 @@ class SuggestionArtifactWriter:
                 anchor_node_id,
                 generated_graph,
             )
+            intended_edge_evidence = [
+                cls._intended_edge_detail_data(match_detail)
+                for match_detail in intended_edge_details_for_generated_graph(
+                    frontend_graph,
+                    anchor_node_id,
+                    generated_graph,
+                )
+            ]
             matching_nodes = []
             graph_candidate_room_types: set[str] = set()
             for matching_node_id in matching_node_ids:
@@ -237,12 +261,51 @@ class SuggestionArtifactWriter:
                     "matchingNodes": matching_nodes,
                     "producedCandidates": bool(graph_candidate_room_types),
                     "candidateRoomTypes": sorted(graph_candidate_room_types),
+                    "intendedEdgeEvidence": intended_edge_evidence,
                 }
             )
 
         return {
             "frontendAnchorSignature": cls._signature_data(frontend_signature),
+            "knownFrontendNeighborTargets": known_neighbor_targets,
             "generatedGraphs": graph_reports,
+        }
+
+    @classmethod
+    def _intended_edge_detail_data(cls, match_detail: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "matchingNodeId": cls._json_safe_node_id(match_detail["matching_node_id"]),
+            "knownNeighborNodes": [
+                {
+                    "nodeId": cls._json_safe_node_id(known["node_id"]),
+                    "roomType": known["room_type"],
+                    "anchorEdgeType": known["anchor_edge_type"],
+                    "targetRoomId": known["target_room_id"],
+                    "targetRoomType": known["target_room_type"],
+                }
+                for known in match_detail["known_neighbor_nodes"]
+            ],
+            "candidateNodes": [
+                {
+                    "nodeId": cls._json_safe_node_id(candidate["node_id"]),
+                    "roomType": candidate["room_type"],
+                    "anchorEdgeType": candidate["anchor_edge_type"],
+                }
+                for candidate in match_detail["candidate_nodes"]
+            ],
+            "secondaryEdges": [
+                {
+                    "candidateNodeId": cls._json_safe_node_id(
+                        secondary["candidate_node_id"]
+                    ),
+                    "suggestedRoomType": secondary["suggested_room_type"],
+                    "targetNodeId": cls._json_safe_node_id(secondary["target_node_id"]),
+                    "targetRoomId": secondary["target_room_id"],
+                    "targetRoomType": secondary["target_room_type"],
+                    "edgeType": secondary["edge_type"],
+                }
+                for secondary in match_detail["secondary_edges"]
+            ],
         }
 
     @classmethod

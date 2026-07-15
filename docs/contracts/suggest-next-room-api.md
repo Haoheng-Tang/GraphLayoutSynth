@@ -99,6 +99,18 @@ export type SuggestNextRoomRequest = {
   includeDebugVisualizations?: boolean;
 };
 
+export type SuggestedIntendedEdge = {
+  targetExistingRoomId?: string | null;
+  targetRoomType: string;
+  edgeType: "door" | "wall";
+  edgeTypeCounts?: {
+    door?: number;
+    wall?: number;
+  };
+  confidence?: number | null;
+  sampleCount?: number | null;
+};
+
 export type NextRoomTypeSuggestion = {
   roomType: string;
   sampleCount: number;
@@ -110,6 +122,7 @@ export type NextRoomTypeSuggestion = {
     door?: number;
     wall?: number;
   };
+  intendedEdges?: SuggestedIntendedEdge[] | null;
 };
 
 export type SuggestNextRoomResponse = {
@@ -408,7 +421,19 @@ The backend owns semantic/topological prediction:
       "edgeTypeCounts": {
         "door": 28,
         "wall": 2
-      }
+      },
+      "intendedEdges": [
+        {
+          "targetExistingRoomId": "room-2",
+          "targetRoomType": "PatientRoom",
+          "edgeType": "wall",
+          "edgeTypeCounts": {
+            "wall": 12
+          },
+          "confidence": 0.24,
+          "sampleCount": 12
+        }
+      ]
     },
     {
       "roomType": "StaffSupport",
@@ -437,6 +462,11 @@ The backend owns semantic/topological prediction:
 * `suggestions[].reason`: optional human-readable explanation. Do not parse it for application logic.
 * `suggestions[].edgeType`: optional dominant recommended connection type for the new edge. If present, NextRoomPredictor should use it when creating the new adjacency edge.
 * `suggestions[].edgeTypeCounts`: optional observed `door` and `wall` support counts for that `roomType`. Counts follow the same graph-sample aggregation boundary as room-type support; a room type can have both door and wall evidence in the same sample when multiple semantic matches produce different extra relations.
+* `suggestions[].intendedEdges`: optional secondary relationships from the *suggested new room* to rooms that already exist in the submitted floorplan. The parent `edgeType` remains the anchor/new-room relationship; each intended edge is additional, not a replacement. Omitted when the generated samples contain no such evidence.
+* `intendedEdges[].targetExistingRoomId`: the frontend room ID of the existing target room. Omitted when several existing anchor neighbors share the same room type and anchor edge type, because the generated evidence cannot name one of them unambiguously; `targetRoomType` is still returned.
+* `intendedEdges[].targetRoomType`: the existing target room's type.
+* `intendedEdges[].edgeType`: dominant connection type between the suggested room and the target across samples; `door` wins ties.
+* `intendedEdges[].edgeTypeCounts`, `intendedEdges[].confidence`, `intendedEdges[].sampleCount`: per-sample support evidence, following the same graph-sample counting boundary as the parent suggestion; `confidence` divides the intended edge's sample support by the top-level sample count.
 * `sampleCount`: number of graph samples actually returned. It may be lower than the requested count.
 * `predictorVersion`: diagnostic backend predictor/version label.
 
@@ -536,6 +566,36 @@ If no matching nodes are found, the backend returns an empty suggestion list.
 It does not relax matching, regenerate graphs, or fall back to internal node
 selection.
 
+## Secondary intended edges
+
+Beyond the anchor relationship, the backend reports whether the suggested new
+room should also connect to existing rooms already on the canvas, using only
+topological evidence from the generated samples.
+
+For each semantic anchor match, the matched node's generated neighbors are
+partitioned deterministically (ascending node-ID string order) into:
+
+* known-neighbor correspondents, consuming one slot per known frontend
+  `(room type, edge type)` anchor relation, and
+* extra candidate suggested nodes.
+
+A secondary intended edge is recorded only when the generated graph itself
+contains a `door`/`wall` edge between a candidate node and a known-neighbor
+correspondent. Nothing is inferred from room-type rules or geometry: a
+`PatientRoom`-to-`Corridor` intended edge is reported as `door` only when the
+generated samples actually contain that door edge, and reported as `wall`
+when they contain a wall edge instead.
+
+Aggregation mirrors the existing suggestion conventions: each
+`(suggested room type, target)` pair is counted at most once per generated
+sample for `sampleCount`, per-sample `door`/`wall` evidence accumulates into
+`edgeTypeCounts`, the dominant `edgeType` prefers `door` on ties, and the
+returned list is ordered by descending sample support, then target room type,
+then target room ID.
+
+Existing clients that ignore `intendedEdges` keep working: the field is
+omitted when no evidence exists, and all previous fields are unchanged.
+
 ## Server-side debug artifacts
 
 Debug saving is disabled by default and does not change the required response
@@ -553,7 +613,9 @@ gets a separate timestamp-and-random-ID directory containing:
 * `request.json`: validated request snapshot in public camel-case form
 * `generated_graph_<index>.json`: raw NetworkX node-link graph data
 * `matching_report.json`: frontend signature, matching internal node IDs,
-  generated signatures, subtracted extras, and per-graph candidates
+  generated signatures, subtracted extras, per-graph candidates, the known
+  frontend-neighbor target mapping, and per-match intended-edge evidence
+  (known-neighbor correspondents, candidate nodes, detected secondary edges)
 * `aggregation_report.json`: match totals, per-room support counts, and the
   exact suggestions returned
 * `README.md`: concise human-readable run summary
@@ -661,7 +723,12 @@ When the user selects a returned `roomType`, NextRoomPredictor must:
 4. Reject, disable, or adjust overlapping placements.
 5. Create a new stable frontend room ID.
 6. Add the room and its wall/door edge to frontend state, using returned `edgeType` when present.
-7. Include the updated state in the next API request.
+7. Optionally resolve returned `intendedEdges` locally: for each entry whose
+   target room still exists (by `targetExistingRoomId`, or by local rules when
+   only `targetRoomType` is present), create the secondary edge with the
+   returned edge type. Geometry, corridor auto-extension, and overlap checks
+   stay in the frontend.
+8. Include the updated state in the next API request.
 
 Do not send another prediction request merely to perform placement. This
 endpoint returns recommendations, not a placement transaction.

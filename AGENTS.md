@@ -26,6 +26,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - A deterministic, LLM-independent program-requirements preflight (`POST /program-requirements/validate` and `validate-program-requirements`) reports `feasible`, `feasible_with_relaxation`, or `infeasible`, and runs before grammar-variant proposal when program requirements are supplied. It validates only; it does not change generation behavior.
 - `POST /suggest-next-room` uses static config by default, can use `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` for env-config compatibility, and can use an activated validated variant when `GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant`.
 - `POST /suggest-next-room` aggregates suggestions by `roomType` and may include optional `edgeType` and `edgeTypeCounts` fields for the dominant generated `door`/`wall` connection evidence. `door` wins edge-type ties.
+- `POST /suggest-next-room` suggestions may also include optional `intendedEdges`: secondary relationships from the suggested new room to existing frontend rooms, aggregated from generated-graph evidence only. `targetExistingRoomId` is omitted when several identical known anchor neighbors make the target ambiguous. The anchor relationship stays in the suggestion's own `edgeType`.
 - Generation uses a seed graph and stochastic YAML `grammar_rules` when present.
 - Validators, grammar-variant prompts, semantic room-mix checks, and typed accessibility context should consume the live config contract rather than duplicating vocabulary assumptions.
 - Grammar rules support simple exact node-attribute matching, created-node aliases, fixed counts, min/max counts, choice sampling, matched-node updates, optional matched-node removal, and edge modes `one_to_one`, `each_to_one`, `one_to_each`, `adjacent_pairs`.
@@ -231,6 +232,7 @@ Typical generated files:
 - Do not make live LLM API calls in tests.
 - Do not make `/suggest-next-room` call the LLM directly; suggestions must use normal graph generation plus deterministic semantic matching/aggregation.
 - Do not redesign `/suggest-next-room` to return geometry, side, direction, placement, or collision results. Optional `edgeType` is connection-type guidance only; clicked-side placement and room geometry remain frontend responsibilities.
+- Do not invent secondary `intendedEdges` without generated-graph evidence, and do not hard-code room-type rules such as "PatientRoom--Corridor is always a door"; intended edges must come from actual edges in generated samples between candidate suggested nodes and known-neighbor correspondents.
 - Do not let invalid, failed, or dry-run variants activate. Only validated configs should be referenced by `active_variant.json`.
 - Do not add heavy dependencies unless requested.
 - Do not implement geometry, OR-Tools, a web UI, deep learning, or product features unless explicitly requested.
