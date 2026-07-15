@@ -210,6 +210,7 @@ def test_request_flag_saves_complete_debug_artifacts(
                 ),
                 "edgeType": "wall",
                 "edgeTypeCounts": {"wall": 1},
+                "intendedEdges": None,
             }
         ],
         "predictorVersion": "graphlayoutsynth-v1",

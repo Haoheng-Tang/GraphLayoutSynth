@@ -96,6 +96,24 @@ class SuggestNextRoomRequest(ApiModel):
         return self
 
 
+class SuggestedIntendedEdge(ApiModel):
+    """One aggregated secondary edge from the suggested room to an existing room.
+
+    ``edge_type`` here is the relationship between the *suggested new room*
+    and an existing frontend room; the anchor relationship stays in the parent
+    suggestion's ``edge_type``. ``target_existing_room_id`` is omitted when
+    several existing rooms share the same room type and anchor edge type, so
+    the generated evidence cannot name one of them unambiguously.
+    """
+
+    target_existing_room_id: str | None = None
+    target_room_type: str
+    edge_type: Literal["door", "wall"]
+    edge_type_counts: dict[Literal["door", "wall"], int] | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    sample_count: int | None = Field(default=None, ge=0)
+
+
 class NextRoomTypeSuggestion(ApiModel):
     """Aggregated evidence for one possible new neighbor room type."""
 
@@ -106,6 +124,7 @@ class NextRoomTypeSuggestion(ApiModel):
     reason: str | None = None
     edge_type: Literal["door", "wall"] | None = None
     edge_type_counts: dict[Literal["door", "wall"], int] | None = None
+    intended_edges: list[SuggestedIntendedEdge] | None = None
 
 
 class SuggestNextRoomResponse(ApiModel):

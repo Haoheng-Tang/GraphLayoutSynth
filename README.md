@@ -88,6 +88,15 @@ connection type, currently `door` or `wall`, with `door` preferred on ties.
 NextRoomPredictor can use `edgeType` when creating the new adjacency edge; if
 it is missing, existing frontend fallback behavior remains valid.
 
+Suggestions may additionally include optional `intendedEdges`: secondary
+relationships from the suggested new room to rooms already present in the
+submitted floorplan (for example, a new patient room that should also connect
+to an existing corridor by a door). Intended edges are reported only when the
+generated graph samples actually contain that edge — no room-type rule is
+hard-coded — and the field is omitted when there is no evidence, so existing
+clients keep working unchanged. See
+[the API contract](docs/contracts/suggest-next-room-api.md) for field details.
+
 The default allowed browser origin is `http://localhost:5173`. Add comma-separated local origins with `NEXT_ROOM_ALLOWED_ORIGINS`.
 
 The suggestion endpoint uses `configs/generic_building.yaml` by default. To

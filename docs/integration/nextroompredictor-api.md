@@ -231,6 +231,20 @@ If `edgeType` is missing, it may fall back to its current default behavior.
 The backend still does not return geometry, side, direction, placement, or
 collision information.
 
+Suggestions may also include `intendedEdges`: secondary relationships from the
+suggested new room to rooms that already exist in the submitted floorplan,
+for example `PatientRoom2--Corridor = door` when the new patient room should
+also open onto an existing corridor. Each entry carries `targetRoomType`, an
+optional `targetExistingRoomId` (omitted when several identical known
+neighbors make the target ambiguous), the dominant `edgeType` (`door` wins
+ties), and `edgeTypeCounts`/`confidence`/`sampleCount` support evidence.
+Intended edges are pure topological evidence from the generated samples — the
+backend does not hard-code room-type rules such as "corridor connections are
+always doors" — and the field is omitted entirely when no sample contains the
+secondary edge. Existing clients can ignore it; the anchor relationship stays
+in the suggestion's own `edgeType`. The frontend remains responsible for
+corridor auto-extension, placement, and overlap resolution.
+
 The top-level `sampleCount` reports the number of samples actually returned by the sampler. If no candidate neighbor types are found, `suggestions` is an empty array.
 
 ## Validation and errors
@@ -299,7 +313,9 @@ The files contain:
   edge, and graph attributes
 - `matching_report.json`: frontend anchor signature and, for every generated
   graph, matching internal node IDs, one-hop signatures, subtracted extras,
-  and candidate room types
+  candidate room types, and intended-edge evidence (known frontend-neighbor
+  targets, known-neighbor correspondents, candidate nodes, and detected
+  secondary edges)
 - `aggregation_report.json`: anchor identity/type, sample and match totals,
   per-room candidate counts, returned suggestions, and predictor version
 - `README.md`: concise run totals, suggestions, and pointers to key files
