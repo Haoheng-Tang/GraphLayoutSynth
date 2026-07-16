@@ -16,6 +16,8 @@ For local development:
 Base URL: http://127.0.0.1:8000
 Health:   GET  /health
 Suggest:  POST /suggest-next-room
+Catalog:  GET  /program-requirements/room-types
+Validate: POST /program-requirements/validate
 Docs:     GET  /docs
 ```
 
@@ -36,13 +38,42 @@ python -m uvicorn server.main:app --reload --port 8000
 ```
 
 `POST /suggest-next-room` uses `configs/generic_building.yaml` by default.
-To run suggestions against a generated or experimental grammar config, set
-`GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` before starting the server:
+The sampler config is selected by `GRAPHLAYOUTSYNTH_GRAMMAR_MODE` before the
+server starts:
+
+- `static` (default): `configs/generic_building.yaml`
+- `env_config`: the path in `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG`
+- `active_variant`: the validated variant activated through the grammar-variant
+  control plane
 
 ```powershell
+$env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "env_config"
 $env:GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG = "outputs/llm_grammar_variant.yaml"
 python -m uvicorn server.main:app --reload --port 8000
 ```
+
+When the mode is omitted, behavior is backward-compatible:
+`GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` is used when set, otherwise the static
+default config.
+
+## Canonical room types
+
+Room-type labels are backend vocabulary. NextRoomPredictor should populate
+room-type dropdowns from the read-only catalog endpoint instead of
+hard-coding names:
+
+```http
+GET /program-requirements/room-types
+```
+
+The catalog returns deterministic, sorted `{id, displayName}` entries derived
+from the active config (following the same static/env-config/active-variant
+resolution as the suggestion sampler), so an activated grammar variant's
+vocabulary appears automatically. Use the canonical `id` values as
+`rooms[].type` in floorplan snapshots and map any user-entered names to them.
+Unknown labels are accepted by request validation, but the generated grammar
+never produces them, so they cannot be semantically matched or suggested. See
+`docs/PROGRAM_REQUIREMENTS.md` for the full catalog contract.
 
 ## When to call
 
@@ -367,11 +398,11 @@ PNG visualizations for this request, include the optional debug flags:
 | `floorplan.schemaVersion` | Must be exactly `1`. |
 | `floorplan.rooms` | Must contain at least one room. |
 | `rooms[].id` | Must be non-empty and unique. Keep it stable across calls. |
-| `rooms[].type` | Must be a non-empty semantic room-type label. |
+| `rooms[].type` | Must be a non-empty semantic room-type label. Use canonical IDs from `GET /program-requirements/room-types`. |
 | `rooms[].x`, `rooms[].y` | Must be JSON numbers. Geometry is preserved but not used for v1 prediction. |
 | `rooms[].width`, `rooms[].height` | Must be positive JSON numbers. |
 | `rooms[].rotation` | Optional number or `null`. |
-| `floorplan.edges` | May be empty. Every endpoint must reference an ID in `rooms`. |
+| `floorplan.edges` | May be empty. Both edge endpoints (`sourceRoomId`, `targetRoomId`) must reference IDs in `rooms`, and must differ. |
 | `edges[].edgeType` | Must be `"wall"` or `"door"`. |
 | `edges[].side` | Optional compatibility field on an existing edge; unused for prediction. |
 | `floorplan.selectedRoomId` | Optional. If supplied, it must reference an existing room. |
@@ -474,6 +505,11 @@ Suggestions are ordered by descending `sampleShare`, with alphabetical
 room-type ordering for ties. When `door` and `wall` support tie for one room
 type, `edgeType` prefers `door`. If `edgeType` is missing, the frontend may
 fall back to its current default edge behavior.
+
+Optional fields without a value (`reason`, `edgeType`, `edgeTypeCounts`,
+`intendedEdges`) are omitted from the response JSON rather than serialized as
+`null`. Frontend code should treat an absent key and a `null` value
+equivalently and must not assert the presence of optional keys.
 
 An empty result is successful:
 
@@ -854,6 +890,7 @@ python -m pytest tests/test_next_room_api.py -q
 ## NextRoomPredictor implementation checklist
 
 * [ ] Read the backend URL from `VITE_GRAPHLAYOUTSYNTH_API_URL`.
+* [ ] Populate room-type dropdowns from `GET /program-requirements/room-types`; never hard-code room type names.
 * [ ] Call the API only from the `+`-handle interaction.
 * [ ] Send the latest floorplan snapshot.
 * [ ] Use the stable ID of the room owning the clicked handle as `anchorRoomId`.

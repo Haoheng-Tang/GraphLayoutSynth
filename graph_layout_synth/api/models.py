@@ -154,3 +154,19 @@ class ProgramRequirementsValidateRequest(ApiModel):
     program_requirements: dict[str, Any]
     base_config_path: str | None = None
     constraint_profile: dict[str, Any] | None = None
+
+
+class ProgramRoomTypeCatalogItem(ApiModel):
+    """One canonical user-facing room type from the active config vocabulary."""
+
+    id: str = Field(min_length=1)
+    display_name: str | None = None
+    description: str | None = None
+
+
+class ProgramRoomTypeCatalogResponse(ApiModel):
+    """Deterministic, read-only room-type catalog for frontend dropdowns."""
+
+    room_types: list[ProgramRoomTypeCatalogItem]
+    source: str | None = None
+    config_path: str | None = None

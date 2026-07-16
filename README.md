@@ -72,6 +72,7 @@ The service exposes:
 
 - `GET /health`
 - `POST /suggest-next-room`
+- `GET /program-requirements/room-types`
 - `POST /program-requirements/validate`
 - optional feature-gated grammar variant endpoints:
   - `POST /grammar-variants/propose`
@@ -210,7 +211,8 @@ python -m graph_layout_synth generate --config outputs/llm_grammar_variant.yaml
 
 The optional HTTP grammar-variant control plane can also accept
 `heuristicInstructions`, optional `baseConfigPath`, optional structured
-`variantRequirements`, `dryRun`, and `activateIfValid` through
+`variantRequirements`, optional user-facing `programRequirements` with an
+optional internal `constraintProfile`, `dryRun`, and `activateIfValid` through
 `POST /grammar-variants/propose`. Activated variants affect API suggestions
 only when the server runs with:
 
@@ -245,6 +247,15 @@ python -m graph_layout_synth validate-program-requirements `
   --constraints configs/program_constraint_profiles/default_healthcare.yaml `
   --output outputs/program_requirements_validation_report.json
 ```
+
+`GET /program-requirements/room-types` returns a deterministic, read-only
+catalog of the canonical user-facing room types from the active config
+vocabulary (the same `ConfigContract` source used by validation). Frontend
+dropdowns should use this endpoint instead of hard-coding room type names,
+and user-entered names should be mapped to these canonical ids before
+validation or generation. It requires no feature flag, never calls the LLM,
+and never generates graphs. See `docs/PROGRAM_REQUIREMENTS.md` for the
+response shape and config-resolution behavior.
 
 The same validation is exposed as `POST /program-requirements/validate` for
 frontend preflight; it never calls the LLM and never generates graphs. When
@@ -311,18 +322,25 @@ Endpoints:
 - `POST /grammar-variants/{variant_id}/activate`
 
 `POST /grammar-variants/propose` accepts `heuristicInstructions`, optional
-`baseConfigPath`, optional structured `variantRequirements`, optional `model`,
-`dryRun`, and `activateIfValid`. Dry runs write the prompt without calling
-Claude or requiring `ANTHROPIC_API_KEY`. Live proposals save structured
-artifacts under `outputs/llm_variants/<variant_id>/` and update
+`baseConfigPath`, optional structured `variantRequirements`, optional
+user-facing `programRequirements` plus an optional internal
+`constraintProfile`, optional `model`, `dryRun`, and `activateIfValid`. Dry
+runs write the prompt without calling Claude or requiring
+`ANTHROPIC_API_KEY`. Live proposals save structured artifacts under
+`outputs/llm_variants/<variant_id>/` and update
 `outputs/llm_variants/registry.json`.
 
 Each proposal directory contains files such as `metadata.json`,
 `heuristic_instructions.md`, `base_config_path.txt`, `prompt.md`,
 `raw_llm_response.md`, `extracted_variant.yaml`, `validated_variant.yaml`,
 `invalid_variant.yaml`, `validation_report.json`, and `rationale.md` when
-available. Invalid or failed variants are recorded but cannot be activated.
-Activation writes `outputs/llm_variants/active_variant.json`.
+available. When `programRequirements` are supplied, the directory also holds
+`submitted_program_requirements.json`, normalized `program_requirements.yaml`,
+`program_constraint_profile.yaml`, and
+`program_requirements_validation.json`; preflight errors block the Claude
+call and record a failed variant. Invalid or failed variants are recorded but
+cannot be activated. Activation writes
+`outputs/llm_variants/active_variant.json`.
 
 Suggestion config selection is controlled separately:
 
@@ -667,6 +685,13 @@ The `generate` command writes these files under `--output-dir`:
 - `top_<rank>_candidate_<n>_trace.json` and `.md`: trace aliases for exported top-k candidates
 - `candidate_<n>.png`, `best_candidate.png`, and `top_<rank>_candidate_<n>.png`: optional visualizations when `--visualize` is used
 
+Other commands and the HTTP API write additional optional artifacts under `outputs/`:
+
+- `program_requirements_validation_report.json`: optional preflight report from `validate-program-requirements --output`
+- `<output-config-stem>_program_requirements.yaml` and `<output-config-stem>_program_validation.json`: normalized requirements and preflight report saved by `propose-grammar-variant --program-requirements`
+- `llm_variants/`: grammar-variant control-plane registry, active-variant pointer, and per-proposal artifact directories
+- `nextroom_suggestions/`: timestamped suggestion debug artifact runs when debug saving is enabled
+
 Generated output artifacts are intentionally ignored by git, except `outputs/.gitkeep`.
 
 ## Claude LLM Evaluation
@@ -713,6 +738,7 @@ Tests must not make live Anthropic API calls. LLM-related tests should mock or i
 ## Package Map
 
 - `graph_layout_synth/config.py`: YAML loading, validation, and typed config dataclasses
+- `graph_layout_synth/config_contract.py`: live config-derived vocabulary, semantic groups, room-mix targets, and reachable room-count ranges
 - `graph_layout_synth/config_validator.py`: user-facing config validation reports for CLI and tests
 - `graph_layout_synth/rule_schema.py`: executable YAML grammar rule validation and application
 - `graph_layout_synth/grammar.py`: seed graph and expansion orchestration
@@ -727,6 +753,9 @@ Tests must not make live Anthropic API calls. LLM-related tests should mock or i
 - `graph_layout_synth/generation_constraint_profile.py`: backend/internal generation constraint profiles
 - `graph_layout_synth/program_preflight.py`: deterministic program-requirements feasibility preflight
 - `graph_layout_synth/grammar_variant_assistant.py`: optional Claude workflow for proposing validated YAML config variants
+- `graph_layout_synth/grammar_variant_control_plane.py`: feature-gated HTTP control plane for proposing, recording, and activating validated variants
+- `graph_layout_synth/api/`: NextRoomPredictor request/response models, frontend↔internal ID adapter, semantic anchor matching, neighbor and intended-edge aggregation, sampler config selection, predictor service, and suggestion debug artifacts
+- `server/main.py`: FastAPI application exposing health, next-room suggestion, program-requirements validation, and grammar-variant endpoints
 - `graph_layout_synth/export.py`: graph, candidate report, and ranking report export
 - `graph_layout_synth/visualize.py`: static PNG graph visualization
 - `graph_layout_synth/tracing.py`: rule-application trace event and trace export helpers
