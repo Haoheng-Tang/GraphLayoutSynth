@@ -61,7 +61,9 @@ Key separations to preserve:
 
 ### HTTP API layer
 
-`server/main.py` (FastAPI) exposes `GET /health`, `POST /suggest-next-room`, and feature-gated grammar-variant endpoints. `graph_layout_synth/api/` holds the Pydantic models, the frontend↔internal ID adapter, strict semantic anchor matching (one-way one-hop multiset coverage over `(neighbor room type, edge type)` signatures — see `docs/PR/semantic-anchor-matching.md`), neighbor aggregation, the mockable `GraphSampler` boundary, and optional debug artifact writing.
+`server/main.py` (FastAPI) exposes `GET /health`, `POST /suggest-next-room`, `POST /program-requirements/validate`, and feature-gated grammar-variant endpoints. `graph_layout_synth/api/` holds the Pydantic models, the frontend↔internal ID adapter, strict semantic anchor matching (one-way one-hop multiset coverage over `(neighbor room type, edge type)` signatures — see `docs/PR/semantic-anchor-matching.md`), neighbor and intended-edge aggregation, the mockable `GraphSampler` boundary, and optional debug artifact writing.
+
+Serialization note: the installed FastAPI omits `None`-valued optional fields from response JSON, so optional suggestion fields (`edgeType`, `edgeTypeCounts`, `intendedEdges`) are *absent* on the wire rather than `null` — don't assert their presence in endpoint tests, and know that `model_dump()` (used in debug artifacts) still includes them as `None`.
 
 The suggestion endpoint's contract is deliberately narrow: it predicts neighbor room types only (with optional `edgeType` guidance and optional `intendedEdges` — evidence-backed secondary connections from the suggested room to existing frontend rooms) — no geometry, side, direction, or placement, which stay in the NextRoomPredictor frontend. Frontend room IDs stay external; internal node IDs stay private. Contract and integration details live in `docs/contracts/` and `docs/integration/nextroompredictor-api.md`; `docs/PR/` records the design rationale for each merged feature.
 
@@ -79,6 +81,7 @@ User-facing `ProgramRequirements` (room types with min/target/max counts plus ad
 
 - Start branches from `main`; keep changes small and aligned with the branch goal. Preserve existing CLI behavior and tests unless a behavior change is requested.
 - Tests must never make live Anthropic API calls — mock or isolate the API boundary. Use deterministic seeds in tests.
+- `tests/conftest.py` clears `ANTHROPIC_API_KEY` and every GraphLayoutSynth service env var before each test, because `load_llm_environment` writes real `.env.local` keys into `os.environ` at runtime. Keep new service env vars in that conftest list, and don't rely on ambient environment in tests.
 - Do not add heavy dependencies (geometry, OR-Tools, deep learning, web UI) unless explicitly requested. Core deps are NetworkX, PyYAML, Matplotlib, plus FastAPI/Pydantic/Uvicorn for the API.
 - Keep `ClinicalSupport` and `StaffSupport` as separate types in review summaries; do not collapse them.
 - Wall-adjacency and accessibility metrics are graph-only proxies — never describe them as geometric or code-compliance metrics, and do not use them for scoring unless requested.
