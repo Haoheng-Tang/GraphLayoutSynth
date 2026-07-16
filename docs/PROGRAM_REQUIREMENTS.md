@@ -169,6 +169,57 @@ optional `path`, `suggestion`, and `debugDetails`.
 This endpoint never calls the LLM and never generates graphs, so it is safe
 for frontend preflight validation. It requires no feature flag.
 
+## Room-type catalog endpoint
+
+```http
+GET /program-requirements/room-types
+```
+
+A read-only catalog of the canonical user-facing room types derived from the
+active config vocabulary, so frontend dropdowns never hard-code room type
+names. IDs come from the live `ConfigContract` (the `room_like` and
+`corridor` semantic groups) — the same vocabulary source program-requirements
+validation uses — so there is no second source of room-type truth. Abstract
+structural node types such as `BuildingFloor` and `Zone` are not included.
+
+Example response:
+
+```json
+{
+  "roomTypes": [
+    {"id": "ClinicalSupport", "displayName": "Clinical support"},
+    {"id": "Corridor", "displayName": "Corridor"},
+    {"id": "PatientRoom", "displayName": "Patient room"},
+    {"id": "StaffSupport", "displayName": "Staff support"}
+  ],
+  "source": "default_config",
+  "configPath": "configs/generic_building.yaml"
+}
+```
+
+`roomTypes` is deterministic, de-duplicated, and sorted by `id`. `description`
+is reserved and currently omitted. `source` is one of `default_config`,
+`env_config`, `active_variant`, or `request_config`.
+
+Config resolution follows the `/suggest-next-room` sampler: with
+`GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant` and a valid active pointer the
+catalog reflects the activated variant's vocabulary; `env_config` uses
+`GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG`; otherwise the default base config is
+used, including the backward-compatible fallback when the mode is unset. In
+active-variant mode a missing pointer fails explicitly with HTTP 400. An
+optional `?baseConfigPath=...` query parameter lets developer tooling inspect
+a specific config (`source: request_config`); an unreadable config returns a
+controlled HTTP 400.
+
+Frontend guidance: populate the program editor's room-type dropdown from this
+endpoint, and map any user-entered room type names to these canonical `id`
+values before calling `POST /program-requirements/validate` or submitting
+requirements for variant proposal. Arbitrary free-text room types will fail
+vocabulary validation.
+
+Like the validation endpoint, the catalog never calls the LLM, never
+generates graphs, never modifies variant state, and requires no feature flag.
+
 ## Integration with grammar-variant proposal
 
 Both the CLI (`propose-grammar-variant --program-requirements ...`, with

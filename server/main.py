@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,10 +14,15 @@ from fastapi.responses import JSONResponse
 from graph_layout_synth.api.models import (
     GrammarVariantProposeRequest,
     ProgramRequirementsValidateRequest,
+    ProgramRoomTypeCatalogResponse,
     SuggestNextRoomRequest,
     SuggestNextRoomResponse,
 )
 from graph_layout_synth.api.predictor import NextRoomPredictor
+from graph_layout_synth.api.room_type_catalog import (
+    RoomTypeCatalogError,
+    room_type_catalog_response,
+)
 from graph_layout_synth.config import DEFAULT_CONFIG_PATH
 from graph_layout_synth.generation_constraint_profile import ConstraintProfileError, parse_constraint_profile
 from graph_layout_synth.grammar_variant_control_plane import (
@@ -93,6 +98,20 @@ def create_app(predictor: NextRoomPredictor | None = None) -> FastAPI:
                 status_code=500,
                 detail="Next-room prediction failed.",
             ) from exc
+
+    @app.get(
+        "/program-requirements/room-types",
+        response_model=ProgramRoomTypeCatalogResponse,
+        response_model_by_alias=True,
+    )
+    def program_room_type_catalog(
+        base_config_path: str | None = Query(default=None, alias="baseConfigPath"),
+    ) -> ProgramRoomTypeCatalogResponse:
+        """Read-only canonical room-type catalog; no LLM, no generation."""
+        try:
+            return room_type_catalog_response(base_config_path)
+        except (RoomTypeCatalogError, ProgramRequirementsError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/program-requirements/validate")
     def validate_program_requirements(

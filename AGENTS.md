@@ -14,7 +14,8 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - Graph backend: NetworkX
 - Config: YAML, default `configs/generic_building.yaml`
 - Config-contract layer: `ConfigContract` derived from the active YAML config.
-- Optional FastAPI integration: `GET /health`, `POST /suggest-next-room`, and feature-gated grammar-variant control-plane endpoints.
+- Optional FastAPI integration: `GET /health`, `POST /suggest-next-room`, `GET /program-requirements/room-types`, `POST /program-requirements/validate`, and feature-gated grammar-variant control-plane endpoints.
+- `GET /program-requirements/room-types` is a read-only catalog of canonical user-facing room types derived from the live `ConfigContract` (`room_like` + `corridor` semantic groups) of the active config, following the same static/env-config/active-variant resolution as the suggestion sampler. It needs no feature flag.
 - CLI commands:
   - `python -m graph_layout_synth generate`
   - `python -m graph_layout_synth validate-config`
@@ -250,6 +251,7 @@ Typical generated files:
 - Keep `GenerationConstraintProfile` internal. Do not ask users for cluster counts, group sizes, corridor degree limits, or relaxation limits.
 - Run the program-requirements preflight before any LLM variant proposal when program requirements are supplied; errors must block the Claude call, warnings must be saved in artifacts.
 - Keep `POST /program-requirements/validate` free of LLM calls and graph generation.
+- Keep `GET /program-requirements/room-types` read-only: no LLM calls, no graph generation, no variant-state changes, and no second source of room-type truth outside `ConfigContract`.
 - User-facing preflight error messages should avoid internal cluster/group language; put internal capacities in `debugDetails`.
 - Tests must not depend on the developer's real `.env.local` or shell service variables; `tests/conftest.py` clears them before every test. Keep new service env vars listed there.
 - Read `docs/GRAMMAR_CONFIG_SKILLS.md` before modifying or generating YAML grammar configs.

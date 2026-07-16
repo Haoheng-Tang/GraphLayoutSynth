@@ -61,7 +61,7 @@ Key separations to preserve:
 
 ### HTTP API layer
 
-`server/main.py` (FastAPI) exposes `GET /health`, `POST /suggest-next-room`, `POST /program-requirements/validate`, and feature-gated grammar-variant endpoints. `graph_layout_synth/api/` holds the Pydantic models, the frontend↔internal ID adapter, strict semantic anchor matching (one-way one-hop multiset coverage over `(neighbor room type, edge type)` signatures — see `docs/PR/semantic-anchor-matching.md`), neighbor and intended-edge aggregation, the mockable `GraphSampler` boundary, and optional debug artifact writing.
+`server/main.py` (FastAPI) exposes `GET /health`, `POST /suggest-next-room`, `GET /program-requirements/room-types` (read-only canonical room-type catalog from the active config's `ConfigContract`; no feature flag), `POST /program-requirements/validate`, and feature-gated grammar-variant endpoints. `graph_layout_synth/api/` holds the Pydantic models, the frontend↔internal ID adapter, strict semantic anchor matching (one-way one-hop multiset coverage over `(neighbor room type, edge type)` signatures — see `docs/PR/semantic-anchor-matching.md`), neighbor and intended-edge aggregation, the mockable `GraphSampler` boundary, and optional debug artifact writing.
 
 Serialization note: the installed FastAPI omits `None`-valued optional fields from response JSON, so optional suggestion fields (`edgeType`, `edgeTypeCounts`, `intendedEdges`) are *absent* on the wire rather than `null` — don't assert their presence in endpoint tests, and know that `model_dump()` (used in debug artifacts) still includes them as `None`.
 

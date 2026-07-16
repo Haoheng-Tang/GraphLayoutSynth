@@ -72,6 +72,7 @@ The service exposes:
 
 - `GET /health`
 - `POST /suggest-next-room`
+- `GET /program-requirements/room-types`
 - `POST /program-requirements/validate`
 - optional feature-gated grammar variant endpoints:
   - `POST /grammar-variants/propose`
@@ -246,6 +247,15 @@ python -m graph_layout_synth validate-program-requirements `
   --constraints configs/program_constraint_profiles/default_healthcare.yaml `
   --output outputs/program_requirements_validation_report.json
 ```
+
+`GET /program-requirements/room-types` returns a deterministic, read-only
+catalog of the canonical user-facing room types from the active config
+vocabulary (the same `ConfigContract` source used by validation). Frontend
+dropdowns should use this endpoint instead of hard-coding room type names,
+and user-entered names should be mapped to these canonical ids before
+validation or generation. It requires no feature flag, never calls the LLM,
+and never generates graphs. See `docs/PROGRAM_REQUIREMENTS.md` for the
+response shape and config-resolution behavior.
 
 The same validation is exposed as `POST /program-requirements/validate` for
 frontend preflight; it never calls the LLM and never generates graphs. When
