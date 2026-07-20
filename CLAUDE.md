@@ -34,7 +34,7 @@ python -m graph_layout_synth generate --config configs/generic_building.yaml \
 python -m uvicorn server.main:app --reload --port 8000
 ```
 
-Other CLI commands (`graph_layout_synth/cli.py`): `validate-program-requirements` (deterministic preflight of user program requirements — no LLM, no generation), `propose-grammar-variant` (use `--no-call` for a prompt-only dry run that needs no API key), `archive-final`, `evaluate-llm`.
+Other CLI commands (`graph_layout_synth/cli.py`): `validate-program-requirements` (deterministic preflight of user program requirements — no LLM, no generation), `propose-grammar-variant` (use `--no-call` for a prompt-only dry run that needs no API key), `propose-instruction-variant` (translates a markdown/text design-instructions file into a YAML config variant; same `--no-call` dry run; see `docs/INSTRUCTION_GUIDED_VARIANTS.md`), `archive-final`, `evaluate-llm`.
 
 `.env.local` at the repo root holds `ANTHROPIC_API_KEY` for LLM commands. Never commit it. Everything under `outputs/` is git-ignored except `outputs/.gitkeep`.
 

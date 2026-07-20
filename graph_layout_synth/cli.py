@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -36,6 +38,7 @@ from graph_layout_synth.generator import generate_candidates
 from graph_layout_synth.grammar_variant_assistant import (
     GrammarVariantError,
     build_grammar_variant_prompt,
+    build_instruction_variant_prompt,
     extract_rationale_from_llm_response,
     extract_yaml_from_llm_response,
     invalid_variant_path,
@@ -182,6 +185,23 @@ def build_parser() -> argparse.ArgumentParser:
     propose_variant.add_argument("--clinical-support-ratio", type=float, default=0.25)
     propose_variant.add_argument("--staff-support-ratio", type=float, default=0.10)
     propose_variant.add_argument("--room-mix-ratio-tolerance", type=float, default=0.08)
+
+    propose_instruction_variant = subparsers.add_parser(
+        "propose-instruction-variant",
+        help=(
+            "Use Claude to translate free-form design instructions into a validated "
+            "YAML config variant."
+        ),
+    )
+    propose_instruction_variant.add_argument("--instructions", type=Path, required=True)
+    propose_instruction_variant.add_argument("--base-config", type=Path, required=True)
+    propose_instruction_variant.add_argument("--output-dir", type=Path, required=True)
+    propose_instruction_variant.add_argument("--samples", type=int, default=0)
+    propose_instruction_variant.add_argument("--no-call", action="store_true")
+    propose_instruction_variant.add_argument("--model", default=DEFAULT_CLAUDE_MODEL)
+    propose_instruction_variant.add_argument("--max-tokens", type=int, default=4000)
+    propose_instruction_variant.add_argument("--env-path", default=".env.local")
+    propose_instruction_variant.add_argument("--seed", type=int, default=None)
 
     return parser
 
@@ -706,6 +726,237 @@ def run_propose_grammar_variant(args: argparse.Namespace) -> None:
     print(f"Model: {args.model}.")
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _write_json_artifact(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=False), encoding="utf-8")
+
+
+def _read_instructions_file(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise GrammarVariantError(f"Instructions file not found: {path}") from exc
+    if not text.strip():
+        raise GrammarVariantError(f"Instructions file is empty: {path}")
+    return text
+
+
+def _run_generation_for_instruction_variant(
+    config_path: Path,
+    output_dir: Path,
+    samples: int,
+    seed: int | None,
+) -> None:
+    """Run the existing `generate` pipeline unchanged against a proposed config."""
+    generate_argv = [
+        "generate",
+        "--config",
+        str(config_path),
+        "--num-candidates",
+        str(samples),
+        "--top-k",
+        str(min(samples, 5)),
+        "--output-dir",
+        str(output_dir),
+    ]
+    if seed is not None:
+        generate_argv += ["--seed", str(seed)]
+    generate_args = build_parser().parse_args(generate_argv)
+    run_generate(generate_args)
+
+
+def _write_instruction_variant_review_summary(
+    path: Path,
+    *,
+    instructions_path: Path,
+    base_config_path: Path,
+    model: str,
+    is_valid: bool,
+    validation_report: dict[str, Any],
+    proposed_config_path: Path,
+    samples_requested: int,
+    samples_dir: Path | None,
+) -> None:
+    lines = [
+        "# Instruction-Guided Config Variant Review",
+        "",
+        f"- Instructions: `{instructions_path}`",
+        f"- Base config: `{base_config_path}`",
+        f"- Model: `{model}`",
+        f"- Proposed config: `{proposed_config_path}`",
+        f"- Config validation: {'PASSED' if is_valid else 'FAILED'}",
+    ]
+    errors = validation_report.get("errors") or []
+    warnings = validation_report.get("warnings") or []
+    if errors:
+        lines += ["", "## Errors", *(f"- {error}" for error in errors)]
+    if warnings:
+        lines += ["", "## Warnings", *(f"- {warning}" for warning in warnings)]
+
+    lines.append("")
+    if not is_valid:
+        lines.append(
+            "No graph samples were generated because the proposed config failed "
+            "deterministic validation."
+        )
+    elif samples_requested > 0 and samples_dir is not None:
+        lines.append(
+            f"Requested {samples_requested} sample(s), generated with the existing "
+            f"deterministic generation pipeline under `{samples_dir}`."
+        )
+    else:
+        lines.append("No graph samples were requested (`--samples 0`).")
+
+    lines += [
+        "",
+        (
+            "Claude proposed this YAML config variant only. It did not generate, "
+            "validate, rank, or certify any graph; deterministic GraphLayoutSynth "
+            "code performed validation" + (" and generation." if samples_dir else ".")
+        ),
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def run_propose_instruction_variant(args: argparse.Namespace) -> None:
+    """Translate free-form design instructions into a validated YAML config variant.
+
+    Claude proposes a YAML config variant only. It never generates graph JSON and
+    never validates, ranks, repairs, or certifies layouts; deterministic
+    GraphLayoutSynth code performs validation and, optionally, generation.
+    """
+    if args.samples < 0:
+        raise SystemExit("--samples must be non-negative.")
+
+    output_dir: Path = args.output_dir
+    try:
+        instructions_text = _read_instructions_file(args.instructions)
+        base_config = _read_yaml_mapping(args.base_config)
+        validate_variant_yaml_text(yaml.safe_dump(base_config, sort_keys=False))
+        grammar_skills_text = Path("docs/GRAMMAR_CONFIG_SKILLS.md").read_text(encoding="utf-8")
+        prompt = build_instruction_variant_prompt(base_config, grammar_skills_text, instructions_text)
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        instructions_path = output_dir / "submitted_instructions.md"
+        instructions_path.write_text(instructions_text.rstrip() + "\n", encoding="utf-8")
+        base_config_path = output_dir / "base_config.yaml"
+        base_config_path.write_text(yaml.safe_dump(base_config, sort_keys=False), encoding="utf-8")
+        prompt_path = output_dir / "llm_prompt.md"
+        prompt_path.write_text(prompt, encoding="utf-8")
+
+        manifest: dict[str, Any] = {
+            "instructionsPath": str(args.instructions),
+            "baseConfigPath": str(args.base_config),
+            "outputDir": str(output_dir),
+            "model": args.model,
+            "noCall": bool(args.no_call),
+            "samplesRequested": args.samples,
+            "claudeCalled": False,
+            "status": "dry_run",
+            "createdAt": _utc_now_iso(),
+            "artifacts": {
+                "submittedInstructions": str(instructions_path),
+                "baseConfig": str(base_config_path),
+                "llmPrompt": str(prompt_path),
+            },
+        }
+        manifest_path = output_dir / "manifest.json"
+        _write_json_artifact(manifest_path, manifest)
+
+        if args.no_call:
+            print(f"Wrote instruction-variant prompt to {prompt_path}.")
+            print("No Claude call was made (--no-call).")
+            print(f"Manifest: {manifest_path}.")
+            return
+
+        load_llm_environment(args.env_path)
+        print(f"Calling Claude instruction-variant assistant with model {args.model}.")
+        print(f"Prompt length: {len(prompt)} characters.")
+        response_text = propose_grammar_variant_with_claude(
+            prompt,
+            model=args.model,
+            max_tokens=args.max_tokens,
+        )
+        manifest["claudeCalled"] = True
+        print(f"Received Claude response: {len(response_text)} characters.")
+
+        raw_response_path = output_dir / "raw_llm_response.md"
+        raw_response_path.write_text(response_text, encoding="utf-8")
+        manifest["artifacts"]["rawLlmResponse"] = str(raw_response_path)
+        _write_json_artifact(manifest_path, manifest)
+
+        try:
+            yaml_text = extract_yaml_from_llm_response(response_text)
+        except GrammarVariantError as exc:
+            manifest["status"] = "failed"
+            manifest["errorSummary"] = str(exc)
+            _write_json_artifact(manifest_path, manifest)
+            print(f"Could not extract YAML from Claude response: {exc}")
+            raise SystemExit(str(exc)) from exc
+
+        proposed_config_path = output_dir / "proposed_config.yaml"
+        proposed_config_path.write_text(yaml_text.rstrip() + "\n", encoding="utf-8")
+        manifest["artifacts"]["proposedConfig"] = str(proposed_config_path)
+
+        validation_report = validate_config_file(proposed_config_path).to_dict()
+        report_path = output_dir / "config_validation_report.json"
+        _write_json_artifact(report_path, validation_report)
+        manifest["artifacts"]["configValidationReport"] = str(report_path)
+
+        is_valid = bool(validation_report.get("is_valid"))
+        samples_dir: Path | None = None
+        if not is_valid:
+            manifest["status"] = "invalid"
+            manifest["errorSummary"] = (
+                "; ".join(validation_report.get("errors", []))
+                or "Proposed config failed validation."
+            )
+        else:
+            manifest["status"] = "valid_no_samples"
+            if args.samples > 0:
+                samples_dir = output_dir / "generated_samples"
+                _run_generation_for_instruction_variant(
+                    proposed_config_path,
+                    samples_dir,
+                    args.samples,
+                    args.seed,
+                )
+                manifest["status"] = "valid_with_samples"
+                manifest["artifacts"]["generatedSamplesDir"] = str(samples_dir)
+
+        review_summary_path = output_dir / "review_summary.md"
+        _write_instruction_variant_review_summary(
+            review_summary_path,
+            instructions_path=args.instructions,
+            base_config_path=args.base_config,
+            model=args.model,
+            is_valid=is_valid,
+            validation_report=validation_report,
+            proposed_config_path=proposed_config_path,
+            samples_requested=args.samples,
+            samples_dir=samples_dir,
+        )
+        manifest["artifacts"]["reviewSummary"] = str(review_summary_path)
+        _write_json_artifact(manifest_path, manifest)
+
+        print(f"Saved proposed config to {proposed_config_path}.")
+        print(f"Config validation: {'PASSED' if is_valid else 'FAILED'}.")
+        print(f"Validation report: {report_path}.")
+        if samples_dir is not None:
+            print(f"Generated {args.samples} sample(s) under {samples_dir}.")
+        print(f"Review summary: {review_summary_path}.")
+        if not is_valid:
+            print("No graph samples were generated because the proposed config failed validation.")
+            raise SystemExit(1)
+    except (GrammarVariantError, FileNotFoundError, yaml.YAMLError) as exc:
+        raise SystemExit(str(exc)) from exc
+
+
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -723,6 +974,8 @@ def main(argv: list[str] | None = None) -> None:
         run_archive_final(args)
     elif args.command == "propose-grammar-variant":
         run_propose_grammar_variant(args)
+    elif args.command == "propose-instruction-variant":
+        run_propose_instruction_variant(args)
 
 
 if __name__ == "__main__":
