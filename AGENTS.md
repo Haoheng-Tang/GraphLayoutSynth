@@ -21,10 +21,12 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
   - `python -m graph_layout_synth validate-config`
   - `python -m graph_layout_synth validate-program-requirements`
   - `python -m graph_layout_synth propose-grammar-variant`
+  - `python -m graph_layout_synth propose-instruction-variant`
   - `python -m graph_layout_synth archive-final`
   - `python -m graph_layout_synth evaluate-llm`
 - User-facing `ProgramRequirements` (room types, min/target/max counts, adjacency preferences) are separate from backend `GenerationConstraintProfile` (group size bounds, corridor degree limits, relaxation limits). Users are never asked for cluster/group/degree parameters.
 - A deterministic, LLM-independent program-requirements preflight (`POST /program-requirements/validate` and `validate-program-requirements`) reports `feasible`, `feasible_with_relaxation`, or `infeasible`, and runs before grammar-variant proposal when program requirements are supplied. It validates only; it does not change generation behavior.
+- `propose-instruction-variant` translates a markdown/text design-instructions file into a YAML config variant, reusing the grammar-variant assistant's prompt building and validation. Claude proposes YAML only, never graphs, on the initial attempt and on every `--repair-attempts` retry; every attempt is validated deterministically and saved under `attempts/`, and generation only ever runs after some attempt validates. See `docs/INSTRUCTION_GUIDED_VARIANTS.md`.
 - `POST /suggest-next-room` uses static config by default, can use `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` for env-config compatibility, and can use an activated validated variant when `GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant`.
 - `POST /suggest-next-room` aggregates suggestions by `roomType` and may include optional `edgeType` and `edgeTypeCounts` fields for the dominant generated `door`/`wall` connection evidence. `door` wins edge-type ties.
 - `POST /suggest-next-room` suggestions may also include optional `intendedEdges`: secondary relationships from the suggested new room to existing frontend rooms, aggregated from generated-graph evidence only. `targetExistingRoomId` is omitted when several identical known anchor neighbors make the target ambiguous. The anchor relationship stays in the suggestion's own `edgeType`.

@@ -465,6 +465,34 @@ python -m graph_layout_synth generate \
 
 If Claude returns invalid YAML, a schema-invalid config, or a config that fails enabled structured requirements such as room-mix targets, the CLI saves the invalid YAML as a sidecar such as `outputs/llm_grammar_variant.invalid.yaml` and exits nonzero. Invalid variants should not be used for generation.
 
+## Instruction-Guided Config Variants
+
+`propose-instruction-variant` is a research CLI workflow that tests whether
+Claude can translate a markdown/text file of researcher-written design
+instructions into a valid YAML config variant, reusing the same
+grammar-variant assistant prompt-building and validation infrastructure.
+Claude proposes YAML only; it never generates graphs, and deterministic
+GraphLayoutSynth code validates every proposal and, optionally, generates
+samples from the first one that validates.
+
+```bash
+python -m graph_layout_synth propose-instruction-variant \
+  --instructions docs/design_instructions/inpatient_unit_rules.md \
+  --base-config configs/generic_building.yaml \
+  --output-dir outputs/instruction_variants/inpatient_unit_live_02 \
+  --samples 25 \
+  --repair-attempts 2
+```
+
+Use `--no-call` to write the prompt without calling Claude. If the initial
+proposal fails deterministic validation, `--repair-attempts N` sends it back
+to Claude with the validation errors up to `N` times, stopping at the first
+attempt that validates; `--repair-attempts 0` (the default) preserves the
+original one-shot behavior. If every attempt remains invalid, every proposal
+is saved for inspection but no graphs are generated. See
+`docs/INSTRUCTION_GUIDED_VARIANTS.md` for the full artifact list, prompt
+contents, and limitations.
+
 ## Grammar Rules
 
 `grammar_rules` are a small executable YAML rule schema, not a full graph-grammar formalism. Rules match nodes by exact attribute values, then update matched nodes, create nodes, create edges, and optionally remove the matched node.
@@ -760,4 +788,4 @@ Tests must not make live Anthropic API calls. LLM-related tests should mock or i
 - `graph_layout_synth/visualize.py`: static PNG graph visualization
 - `graph_layout_synth/tracing.py`: rule-application trace event and trace export helpers
 - `graph_layout_synth/llm_evaluator.py`: optional Claude interpretation of deterministic reports
-- `graph_layout_synth/cli.py`: `generate`, `validate-config`, `validate-program-requirements`, `propose-grammar-variant`, `archive-final`, and `evaluate-llm` commands
+- `graph_layout_synth/cli.py`: `generate`, `validate-config`, `validate-program-requirements`, `propose-grammar-variant`, `propose-instruction-variant`, `archive-final`, and `evaluate-llm` commands

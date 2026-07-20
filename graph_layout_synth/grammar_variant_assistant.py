@@ -382,6 +382,107 @@ def build_grammar_variant_prompt(
     return "\n\n".join(sections).strip() + "\n"
 
 
+INSTRUCTION_VARIANT_PREAMBLE = (
+    "Translate the following design instructions into a complete GraphLayoutSynth "
+    "YAML config variant.\n\n"
+    "Express each design rule using supported existing config concepts such as "
+    "grammar_rules (match/action, create_nodes, create_edges, edge modes, stochastic "
+    "counts and choices), typed_accessibility_pairs, semantic_node_groups, "
+    "room_mix_targets, validation settings, or ranking weights and targets. If a rule "
+    "cannot be expressed exactly with these existing config concepts, approximate it "
+    "as closely as possible using them rather than inventing a new, unsupported "
+    "config field.\n\n"
+    "Do not generate graph samples, node-link JSON, or any other raw graph output. "
+    "Propose only a YAML config variant; GraphLayoutSynth's deterministic code "
+    "validates the config and generates graphs from it separately."
+)
+
+
+def build_instruction_variant_design_intent(instructions_text: str) -> str:
+    """Wrap raw design instructions with instruction-variant framing for the prompt."""
+    return (
+        INSTRUCTION_VARIANT_PREAMBLE
+        + "\n\n# Design Instructions\n"
+        + instructions_text.strip()
+    )
+
+
+def build_instruction_variant_prompt(
+    base_config: dict,
+    grammar_skills_text: str,
+    instructions_text: str,
+) -> str:
+    """Build the prompt for translating free-form design instructions into a config variant.
+
+    Reuses ``build_grammar_variant_prompt`` for the base config, live config
+    contract, and strict complete-YAML output instructions, adding only the
+    instruction-specific framing and the verbatim instruction text as design intent.
+    """
+    return build_grammar_variant_prompt(
+        base_config,
+        grammar_skills_text,
+        design_intent=build_instruction_variant_design_intent(instructions_text),
+    )
+
+
+def build_instruction_variant_repair_prompt(
+    base_config: dict,
+    grammar_skills_text: str,
+    instructions_text: str,
+    invalid_yaml_text: str,
+    validation_errors: list[str],
+) -> str:
+    """Build a repair prompt asking Claude to correct an invalid config proposal.
+
+    Includes the original instructions, base config/schema guidance, the
+    invalid YAML, and the deterministic validation errors that must be
+    fixed. Like the initial prompt, this asks for a complete corrected YAML
+    config, never a patch, and never graph samples: deterministic
+    GraphLayoutSynth validation remains the sole judge of acceptance.
+    """
+    base_yaml = yaml.safe_dump(base_config, sort_keys=False)
+    contract = build_config_contract(base_config)
+    errors_text = (
+        "\n".join(f"- {error}" for error in validation_errors)
+        if validation_errors
+        else "- (no specific error messages were provided)"
+    )
+    sections = [
+        "# Task\n"
+        "Your previous GraphLayoutSynth YAML config proposal failed deterministic "
+        "validation. Correct it. The corrected variant will be validated again "
+        "before use and then run through the existing procedural generator.\n",
+        "# Grammar Config Skills\n" + grammar_skills_text.strip(),
+        "# Live Config Contract\n"
+        "These values are derived from the actual base YAML config and are the "
+        "config-specific source of truth. Use only the listed node and edge "
+        "vocabularies unless the corrected config updates every relevant section "
+        "consistently.\n"
+        "```json\n" + _compact_json(contract.to_summary()) + "\n```",
+        "# Base YAML Config\n```yaml\n" + base_yaml.strip() + "\n```",
+        "# Original Design Instructions\n" + instructions_text.strip(),
+        "# Your Previous Invalid YAML Proposal\n```yaml\n" + invalid_yaml_text.strip() + "\n```",
+        "# Deterministic Validation Errors\n" + errors_text,
+    ]
+    sections.append(
+        "# Output Instructions\n"
+        "Return a complete corrected YAML config only in a fenced yaml block.\n"
+        "Do not return a patch or diff.\n"
+        "Do not invent unsupported fields.\n"
+        "Preserve required top-level sections and schema validity.\n"
+        "Fix every listed validation error while keeping the config internally "
+        "consistent with the Live Config Contract and continuing to reflect the "
+        "original design instructions.\n"
+        "Do not generate graph samples, node-link JSON, or any other raw graph "
+        "output; propose only a corrected YAML config.\n"
+        "Deterministic GraphLayoutSynth validation, not this response, will decide "
+        "whether the corrected config is accepted.\n"
+        "Do not include prose inside the YAML block. If you include rationale, put "
+        "it outside the YAML block."
+    )
+    return "\n\n".join(sections).strip() + "\n"
+
+
 def _extract_message_text(message: Any) -> str:
     content = getattr(message, "content", [])
     text_parts = []
