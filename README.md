@@ -472,21 +472,26 @@ Claude can translate a markdown/text file of researcher-written design
 instructions into a valid YAML config variant, reusing the same
 grammar-variant assistant prompt-building and validation infrastructure.
 Claude proposes YAML only; it never generates graphs, and deterministic
-GraphLayoutSynth code validates the proposal and, optionally, generates
-samples from it.
+GraphLayoutSynth code validates every proposal and, optionally, generates
+samples from the first one that validates.
 
 ```bash
 python -m graph_layout_synth propose-instruction-variant \
   --instructions docs/design_instructions/inpatient_unit_rules.md \
   --base-config configs/generic_building.yaml \
-  --output-dir outputs/instruction_variants/inpatient_unit_v1 \
-  --samples 50
+  --output-dir outputs/instruction_variants/inpatient_unit_live_02 \
+  --samples 25 \
+  --repair-attempts 2
 ```
 
-Use `--no-call` to write the prompt without calling Claude. If the proposed
-config fails deterministic validation, it is saved for inspection but no
-graphs are generated. See `docs/INSTRUCTION_GUIDED_VARIANTS.md` for the full
-artifact list, prompt contents, and limitations.
+Use `--no-call` to write the prompt without calling Claude. If the initial
+proposal fails deterministic validation, `--repair-attempts N` sends it back
+to Claude with the validation errors up to `N` times, stopping at the first
+attempt that validates; `--repair-attempts 0` (the default) preserves the
+original one-shot behavior. If every attempt remains invalid, every proposal
+is saved for inspection but no graphs are generated. See
+`docs/INSTRUCTION_GUIDED_VARIANTS.md` for the full artifact list, prompt
+contents, and limitations.
 
 ## Grammar Rules
 
