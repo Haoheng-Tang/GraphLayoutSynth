@@ -13,6 +13,8 @@ from fastapi.responses import JSONResponse
 
 from graph_layout_synth.api.models import (
     GrammarVariantProposeRequest,
+    InstructionVariantProposeRequest,
+    InstructionVariantProposeResponse,
     ProgramRequirementsValidateRequest,
     ProgramRoomTypeCatalogResponse,
     SuggestNextRoomRequest,
@@ -33,11 +35,27 @@ from graph_layout_synth.grammar_variant_control_plane import (
     propose_variant_from_instructions,
     variant_detail,
 )
+from graph_layout_synth.instruction_variant_control_plane import (
+    propose_instruction_variant_from_request,
+)
+from graph_layout_synth.llm_evaluator import load_llm_environment
 from graph_layout_synth.program_preflight import load_raw_config_mapping, run_program_preflight
 from graph_layout_synth.program_requirements import ProgramRequirementsError
 
 
 LOGGER = logging.getLogger(__name__)
+
+# Load `.env.local` into the process environment once, at import time, so
+# local development does not require exporting GRAPHLAYOUTSYNTH_*/
+# ANTHROPIC_API_KEY into the shell before starting uvicorn -- matching the
+# CLI commands, which already default to `--env-path .env.local`.
+# `load_llm_environment` never overrides a variable already present in
+# `os.environ` (see graph_layout_synth/llm_evaluator.py), and this runs only
+# once per process, before `create_app()` is ever called. Tests remain
+# isolated: `tests/conftest.py`'s autouse fixture clears every
+# GraphLayoutSynth service env var before each test, which happens after
+# this module-level load has already run during test collection.
+load_llm_environment()
 DEFAULT_ALLOWED_ORIGIN = "http://localhost:5173"
 
 
@@ -156,6 +174,32 @@ def create_app(predictor: NextRoomPredictor | None = None) -> FastAPI:
                 dry_run=request.dry_run,
                 activate_if_valid=request.activate_if_valid,
             )
+        except GrammarVariantControlPlaneError as exc:
+            detail: dict[str, object] = {"message": str(exc)}
+            if exc.record is not None:
+                detail["variant"] = exc.record
+            raise HTTPException(status_code=exc.status_code, detail=detail) from exc
+
+    @app.post(
+        "/grammar-variants/propose-from-instructions",
+        response_model=InstructionVariantProposeResponse,
+        response_model_by_alias=True,
+    )
+    def propose_grammar_variant_from_instructions(
+        request: InstructionVariantProposeRequest,
+    ) -> InstructionVariantProposeResponse:
+        """Translate submitted design instructions into a grammar/config variant.
+
+        Gated the same way as every other `/grammar-variants/*` endpoint,
+        including dry runs, matching this control plane's existing
+        convention. Claude is called only when this endpoint is reached with
+        `dryRun=false`; `/suggest-next-room`, program-requirement validation,
+        the room-type catalog, and variant listing/inspection/activation
+        never call it.
+        """
+        _require_llm_variant_control_plane_enabled()
+        try:
+            return propose_instruction_variant_from_request(request)
         except GrammarVariantControlPlaneError as exc:
             detail: dict[str, object] = {"message": str(exc)}
             if exc.record is not None:

@@ -2,11 +2,12 @@
 
 ## Purpose
 
-`propose-instruction-variant` is a research CLI workflow for testing whether
-Claude can translate researcher-written design instructions (a markdown or
-text file of design rules) into a valid GraphLayoutSynth YAML config variant.
+`propose-instruction-variant` (CLI) and `POST /grammar-variants/propose-from-instructions`
+(HTTP) let a researcher or NextRoomPredictor submit free-form design
+instructions and test whether Claude can translate them into a valid
+GraphLayoutSynth YAML config variant.
 
-It exists to answer one narrow question: given free-form instructions like
+They exist to answer one narrow question: given free-form instructions like
 "avoid a single corridor hub" or "clinical support rooms should be near
 patient rooms," can Claude express that intent using GraphLayoutSynth's
 *existing* config vocabulary (`grammar_rules`, `typed_accessibility_pairs`,
@@ -16,8 +17,11 @@ enough to produce a config that passes deterministic validation?
 This is a config-authoring aid, not a new generation, validation, or ranking
 path. It does not replace `propose-grammar-variant` (structured
 requirements/heuristic instructions) or the program-requirements preflight
-(user-facing room-mix validation); it is a separate, narrower experiment
-focused on markdown-style design rules.
+(user-facing room-mix validation); it is a separate, narrower workflow
+focused on markdown/plain-text design rules. The CLI and HTTP entry points
+share one attempt/repair engine (`instruction_variant_workflow.py`) and, over
+HTTP, one variant registry (`grammar_variant_control_plane.py`) — there is no
+separate implementation or separate bookkeeping between the two.
 
 ## Claude proposes YAML only
 
@@ -140,10 +144,157 @@ revised YAML config. GraphLayoutSynth's deterministic validator remains the
 sole authority on acceptance, and generation still runs only after some
 attempt actually validates.
 
+## HTTP endpoint
+
+```http
+POST /grammar-variants/propose-from-instructions
+```
+
+This exposes the same instruction-guided proposal workflow to
+NextRoomPredictor over HTTP, so the frontend can submit plain-language design
+instructions directly. It reuses the CLI's exact attempt/repair engine
+(`instruction_variant_workflow.py`) and, on a valid proposal, registers the
+result as a normal entry in the *existing* grammar-variant registry
+(`grammar_variant_control_plane.py`) — there is no second, independent
+variant registry. A valid instruction-guided proposal is immediately visible
+via `GET /grammar-variants`, inspectable via `GET /grammar-variants/{id}`,
+and activatable via `POST /grammar-variants/{id}/activate`, exactly like a
+variant proposed from structured requirements or heuristic instructions.
+
+**Gating**: like every other `/grammar-variants/*` endpoint, this one
+(including dry runs) requires `GRAPHLAYOUTSYNTH_ENABLE_LLM_VARIANTS=true` and
+returns HTTP 403 otherwise — matching the existing `POST /grammar-variants/propose`
+convention, where dry runs are gated identically. `GET /health`,
+`POST /suggest-next-room`, `GET /program-requirements/room-types`,
+`POST /program-requirements/validate`, and server startup are entirely
+unaffected by this flag and never call Claude, gated or not.
+
+**Explicit rule: Claude is called only for this one endpoint, only when
+`dryRun` is not set, and only with non-empty `instructionText`.** No other
+endpoint in this service calls the LLM. In particular:
+
+- structured program-requirement validation (`POST /program-requirements/validate`)
+  is purely deterministic and never touches Claude;
+- the room-type catalog (`GET /program-requirements/room-types`) is a
+  read-only, config-derived lookup;
+- variant listing, inspection, and activation
+  (`GET /grammar-variants`, `GET /grammar-variants/{id}`,
+  `POST /grammar-variants/{id}/activate`) only read and update
+  `registry.json`/config files, never call Claude;
+- `POST /suggest-next-room` always uses the deterministic generator and
+  never calls Claude, regardless of this feature flag.
+
+### Request
+
+```json
+{
+  "name": "inpatient-unit-rules-v1",
+  "instructionText": "# Inpatient unit rules\n\n- PatientRoom should connect to Corridor with door edges.\n- ClinicalSupport should be near PatientRoom groups.\n- Avoid a single Corridor node connected to every PatientRoom.",
+  "repairAttempts": 2,
+  "samples": 0,
+  "dryRun": false
+}
+```
+
+- `instructionText` (required): must be non-empty after trimming whitespace;
+  empty or whitespace-only text returns a controlled HTTP 400.
+- `name` (optional): a short human-readable label used for the registry's
+  `heuristicSummary` instead of a truncated instruction-text summary.
+- `baseConfigPath` (optional): defaults to `configs/generic_building.yaml`,
+  validated with the same safe YAML loading the existing
+  `POST /grammar-variants/propose` endpoint already uses for this field.
+- `repairAttempts` (optional, default `0`, capped at `3`): out-of-range
+  values return HTTP 400 rather than being silently clamped, matching how
+  `sampleCount` is already bounded on `POST /suggest-next-room`.
+- `samples` (optional, default `0`, capped at `25`): same bounded-and-rejected
+  convention.
+- `dryRun` (optional, default `false`): see below.
+
+### Response
+
+```json
+{
+  "status": "proposed_valid",
+  "variantId": "20260721T090501123456Z-3f9a1c2d",
+  "valid": true,
+  "repairAttemptsUsed": 1,
+  "generationRan": false,
+  "artifactDir": "outputs/llm_variants/20260721T090501123456Z-3f9a1c2d",
+  "attempts": [
+    {"attemptIndex": 0, "kind": "initial", "valid": false, "validationErrorCount": 2, "artifactDir": "outputs/llm_variants/20260721T090501123456Z-3f9a1c2d/attempts/attempt_0_initial"},
+    {"attemptIndex": 1, "kind": "repair", "valid": true, "validationErrorCount": 0, "artifactDir": "outputs/llm_variants/20260721T090501123456Z-3f9a1c2d/attempts/attempt_1_repair"}
+  ],
+  "errors": [],
+  "warnings": []
+}
+```
+
+`status` is one of `dry_run`, `proposed_valid`, `generated`,
+`proposed_invalid`, or `failed`, mirroring the CLI manifest's status
+vocabulary. `variantId` is the registry ID used with the existing
+`GET /grammar-variants/{id}` and `POST /grammar-variants/{id}/activate`
+endpoints — except for dry runs, where it is always `null` (see below).
+
+### Dry-run behavior
+
+With `dryRun: true`, the endpoint trims and validates the instruction text,
+builds the same prompt the CLI would send, and writes
+`submitted_instructions.md`, `base_config.yaml`, `llm_prompt.md`, and
+`manifest.json` under a server-assigned artifact directory — **without
+calling Claude and without running any repair attempts or graph
+generation**. The response is always:
+
+```json
+{
+  "status": "dry_run",
+  "variantId": null,
+  "valid": false,
+  "repairAttemptsUsed": 0,
+  "generationRan": false,
+  "artifactDir": "outputs/llm_variants/<id>",
+  "attempts": [],
+  "errors": [],
+  "warnings": []
+}
+```
+
+`variantId` is intentionally `null` in the response even though the
+artifacts live under a real, server-assigned directory: dry runs are cheap
+enough that a frontend may trigger many of them while a user drafts
+instructions, and they are not meant to be treated as addressable variants.
+
+### Repair attempts over HTTP
+
+`repairAttempts` works exactly like the CLI's `--repair-attempts`: if the
+initial proposal fails deterministic validation, the invalid YAML and its
+validation errors are sent back to Claude, up to `repairAttempts` times,
+stopping at the first attempt that validates. If every attempt remains
+invalid, the response has `valid: false` and `status: "proposed_invalid"`,
+and the config is never used for generation or made activatable.
+
+### Activation flow
+
+1. `POST /grammar-variants/propose-from-instructions` with `dryRun: false`
+   and a valid resulting config.
+2. The response's `variantId` and `status: "proposed_valid"` (or
+   `"generated"`) confirm the variant is registered and activatable.
+3. `POST /grammar-variants/{variantId}/activate` — identical to activating
+   any other variant; this call never touches Claude.
+4. With `GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant`, `/suggest-next-room`
+   now samples from the instruction-guided config — still without ever
+   calling Claude itself.
+
+An invalid proposal (initial or after exhausting repairs) is still saved
+with a `variantId` and appears in `GET /grammar-variants` for inspection, but
+`POST /grammar-variants/{variantId}/activate` returns HTTP 400 for it, the
+same as any other non-`valid` record.
+
 ## Artifacts
 
-All artifacts are written under `--output-dir`. These four are always
-written, whether or not Claude is called:
+All artifacts are written under `--output-dir` (CLI) or the server-assigned
+directory under the configured variant root, typically
+`outputs/llm_variants/<variantId>/` (HTTP) — the layout is identical either
+way. These four are always written, whether or not Claude is called:
 
 ```txt
 submitted_instructions.md   # the instruction file's exact text
@@ -152,9 +303,9 @@ llm_prompt.md                # the initial prompt sent (or that would be sent) t
 manifest.json                 # run metadata: inputs, status, all attempts, artifact paths
 ```
 
-If Claude is called (i.e., not `--no-call`), every attempt — the initial
-proposal plus any repair attempts — gets its own subdirectory under
-`attempts/`:
+If Claude is called (i.e., not `--no-call` on the CLI, or `dryRun: false`
+over HTTP), every attempt — the initial proposal plus any repair attempts —
+gets its own subdirectory under `attempts/`:
 
 ```txt
 attempts/
@@ -200,12 +351,18 @@ validation, `manifest.json` records `status: "proposed_invalid"`, and **no
 graphs are generated** regardless of `--samples`. The CLI exits nonzero.
 
 If some attempt validates, `manifest.json` records `status: "proposed_valid"`
-(or `"generated"` once graphs are produced). If `--samples > 0`, graph
-samples are generated by directly reusing the existing `generate` CLI
-pipeline (`run_generate`) against the top-level `proposed_config.yaml` — no
-new generator code is introduced. Outputs use the same conventions as
-`generate` (`candidate_<n>.json`, `ranking_report.json`, `best_candidate.json`,
-etc.) under `<output-dir>/generated_samples/`.
+(or `"generated"` once graphs are produced). Graph samples are always
+optional and deterministic: they are requested explicitly (`--samples` /
+`samples`, both defaulting to `0`), never generated unless a proposal
+actually validates, and produced by the same seeded, deterministic `generate`
+pipeline used everywhere else in GraphLayoutSynth — Claude has no part in
+generation or in deciding whether it runs. If `--samples > 0` (CLI) or
+`samples > 0` (HTTP), graph samples are generated by directly reusing the
+existing `generate` CLI pipeline (`run_generate`) against the top-level
+`proposed_config.yaml` — no new generator code is introduced. Outputs use
+the same conventions as `generate` (`candidate_<n>.json`, `ranking_report.json`,
+`best_candidate.json`, etc.) under `<output-dir>/generated_samples/` (CLI) or
+`<artifactDir>/generated_samples/` (HTTP).
 
 `manifest.json` also records `repairAttemptsRequested`, `repairAttemptsUsed`,
 `generationRan`, and an `attempts` list (one entry per attempt, with its
@@ -214,12 +371,13 @@ the full repair history is reviewable without re-reading every file.
 
 ## Limitations
 
-- This workflow is a config-authoring experiment, not a production feature.
-  It does not integrate with `ProgramRequirements`/program-requirements
-  preflight, does not activate proposed variants through the grammar-variant
-  control plane, and does not affect `/suggest-next-room`.
-- Only markdown/plain-text instruction files are supported; there is no PDF
-  ingestion.
+- This workflow is a config-authoring aid. It does not integrate with
+  `ProgramRequirements`/program-requirements preflight (that remains a
+  separate, user-facing room-mix validation flow), and it does not implement
+  any frontend UI — this branch is backend-only; NextRoomPredictor's own
+  instruction-submission UI, if any, is out of scope here.
+- Only markdown/plain-text instruction files (CLI) or plain-text
+  `instructionText` (HTTP) are supported; there is no PDF ingestion.
 - There is no separate rule parser — instruction interpretation is entirely
   Claude's proposal, checked only by GraphLayoutSynth's existing
   deterministic validator and `ConfigContract` consistency checks. A
@@ -227,9 +385,12 @@ the full repair history is reviewable without re-reading every file.
   consistent, not that it faithfully captures every instruction.
 - Repair only gives Claude another chance to pass the same deterministic
   checks; it does not add reasoning, retries with different strategies, or
-  guarantee convergence. `--repair-attempts` bounds the number of Claude
-  calls, not the quality of the result — a proposal can still be invalid
-  after every attempt is exhausted.
+  guarantee convergence. `--repair-attempts`/`repairAttempts` bounds the
+  number of Claude calls, not the quality of the result — a proposal can
+  still be invalid after every attempt is exhausted.
+- The HTTP endpoint is synchronous: a live request blocks until Claude
+  responds (and, if requested, until generation finishes). There is no
+  background job queue or polling in this branch.
 - As with `propose-grammar-variant`, tests for this workflow mock the Claude
   call; no live API calls are made in the test suite.
 
@@ -237,7 +398,13 @@ the full repair history is reviewable without re-reading every file.
 
 - `docs/GRAMMAR_CONFIG_SKILLS.md`: the schema reference given to Claude for
   any config-variant proposal.
-- `propose-grammar-variant`: the structured-requirements/heuristic-instructions
-  workflow this command's prompt-building code is built on.
+- `propose-grammar-variant` / `POST /grammar-variants/propose`: the
+  structured-requirements/heuristic-instructions workflow this feature's
+  prompt-building code is built on, and the registry this feature's valid
+  proposals become normal entries in.
 - `docs/PROGRAM_REQUIREMENTS.md`: the separate, user-facing program-requirements
   preflight (room-mix min/target/max, not free-form design instructions).
+- `docs/contracts/suggest-next-room-api.md`: how an activated variant (from
+  either grammar-variant proposal flow) affects `/suggest-next-room` sampling
+  once `GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant` is set — that endpoint
+  itself never calls Claude.

@@ -156,6 +156,57 @@ class ProgramRequirementsValidateRequest(ApiModel):
     constraint_profile: dict[str, Any] | None = None
 
 
+MAX_INSTRUCTION_VARIANT_REPAIR_ATTEMPTS = 3
+MAX_INSTRUCTION_VARIANT_SAMPLES = 25
+
+
+class InstructionVariantProposeRequest(ApiModel):
+    """Request to translate free-form design instructions into a config variant.
+
+    Claude is called only when this request is submitted with non-empty
+    ``instructionText`` and ``dryRun`` is not set; it is never invoked for
+    program-requirement validation, room-type catalog lookups, variant
+    listing/inspection/activation, or `/suggest-next-room`.
+    """
+
+    instruction_text: str = Field(min_length=1)
+    name: str | None = None
+    base_config_path: str | None = None
+    repair_attempts: int = Field(default=0, ge=0, le=MAX_INSTRUCTION_VARIANT_REPAIR_ATTEMPTS, strict=True)
+    samples: int = Field(default=0, ge=0, le=MAX_INSTRUCTION_VARIANT_SAMPLES, strict=True)
+    dry_run: bool = Field(default=False, strict=True)
+
+    @model_validator(mode="after")
+    def validate_instruction_text(self) -> "InstructionVariantProposeRequest":
+        if not self.instruction_text.strip():
+            raise ValueError("instructionText must be non-empty after trimming whitespace.")
+        return self
+
+
+class InstructionVariantAttemptSummary(ApiModel):
+    """One initial or repair attempt's outcome, for the HTTP response."""
+
+    attempt_index: int
+    kind: Literal["initial", "repair"]
+    valid: bool
+    validation_error_count: int
+    artifact_dir: str | None = None
+
+
+class InstructionVariantProposeResponse(ApiModel):
+    """Outcome of one instruction-guided config-variant proposal request."""
+
+    status: Literal["dry_run", "proposed_valid", "generated", "proposed_invalid", "failed"]
+    variant_id: str | None = None
+    valid: bool
+    repair_attempts_used: int
+    generation_ran: bool
+    artifact_dir: str
+    attempts: list[InstructionVariantAttemptSummary] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ProgramRoomTypeCatalogItem(ApiModel):
     """One canonical user-facing room type from the active config vocabulary."""
 

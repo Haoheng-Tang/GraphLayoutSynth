@@ -21,12 +21,13 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
   - `python -m graph_layout_synth validate-config`
   - `python -m graph_layout_synth validate-program-requirements`
   - `python -m graph_layout_synth propose-grammar-variant`
-  - `python -m graph_layout_synth propose-instruction-variant`
+  - `python -m graph_layout_synth propose-instruction-variant` (HTTP equivalent: `POST /grammar-variants/propose-from-instructions`)
   - `python -m graph_layout_synth archive-final`
   - `python -m graph_layout_synth evaluate-llm`
 - User-facing `ProgramRequirements` (room types, min/target/max counts, adjacency preferences) are separate from backend `GenerationConstraintProfile` (group size bounds, corridor degree limits, relaxation limits). Users are never asked for cluster/group/degree parameters.
 - A deterministic, LLM-independent program-requirements preflight (`POST /program-requirements/validate` and `validate-program-requirements`) reports `feasible`, `feasible_with_relaxation`, or `infeasible`, and runs before grammar-variant proposal when program requirements are supplied. It validates only; it does not change generation behavior.
 - `propose-instruction-variant` translates a markdown/text design-instructions file into a YAML config variant, reusing the grammar-variant assistant's prompt building and validation. Claude proposes YAML only, never graphs, on the initial attempt and on every `--repair-attempts` retry; every attempt is validated deterministically and saved under `attempts/`, and generation only ever runs after some attempt validates. See `docs/INSTRUCTION_GUIDED_VARIANTS.md`.
+- `POST /grammar-variants/propose-from-instructions` exposes the same instruction-guided workflow over HTTP, sharing one attempt/repair engine (`instruction_variant_workflow.py`) with the CLI and one variant registry (`grammar_variant_control_plane.py`) — no second registry. Gated the same as every other `/grammar-variants/*` endpoint (including dry runs). Claude is called only for this endpoint with `dryRun=false` and non-empty `instructionText`; a valid result is registered, listed, inspectable, and activatable exactly like any other grammar variant.
 - `POST /suggest-next-room` uses static config by default, can use `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` for env-config compatibility, and can use an activated validated variant when `GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant`.
 - `POST /suggest-next-room` aggregates suggestions by `roomType` and may include optional `edgeType` and `edgeTypeCounts` fields for the dominant generated `door`/`wall` connection evidence. `door` wins edge-type ties.
 - `POST /suggest-next-room` suggestions may also include optional `intendedEdges`: secondary relationships from the suggested new room to existing frontend rooms, aggregated from generated-graph evidence only. `targetExistingRoomId` is omitted when several identical known anchor neighbors make the target ambiguous. The anchor relationship stays in the suggestion's own `edgeType`.
@@ -237,6 +238,8 @@ Typical generated files:
 - Do not redesign `/suggest-next-room` to return geometry, side, direction, placement, or collision results. Optional `edgeType` is connection-type guidance only; clicked-side placement and room geometry remain frontend responsibilities.
 - Do not invent secondary `intendedEdges` without generated-graph evidence, and do not hard-code room-type rules such as "PatientRoom--Corridor is always a door"; intended edges must come from actual edges in generated samples between candidate suggested nodes and known-neighbor correspondents.
 - Do not let invalid, failed, or dry-run variants activate. Only validated configs should be referenced by `active_variant.json`.
+- Do not call the LLM anywhere except `propose-grammar-variant`/`POST /grammar-variants/propose` and `propose-instruction-variant`/`POST /grammar-variants/propose-from-instructions` (the latter only when `dryRun`/`--no-call` is not set and instruction text is non-empty). Program-requirement validation, the room-type catalog, variant listing/inspection/activation, and `/suggest-next-room` must never call it.
+- Do not create a second, independent variant registry for instruction-guided proposals; they must use the same `registry.json`/`GrammarVariantRecord` as heuristic-only proposals.
 - Do not add heavy dependencies unless requested.
 - Do not implement geometry, OR-Tools, a web UI, deep learning, or product features unless explicitly requested.
 - Do not change generation, ranking, visualization, LLM evaluation, config behavior, or tests on documentation-only branches unless an obvious docs-related fix requires it.

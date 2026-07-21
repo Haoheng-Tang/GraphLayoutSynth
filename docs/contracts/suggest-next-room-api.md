@@ -46,6 +46,17 @@ server starts:
 - `active_variant`: the validated variant activated through the grammar-variant
   control plane
 
+A variant becomes activatable through two feature-gated proposal paths that
+share one registry: `POST /grammar-variants/propose` (structured
+requirements or heuristic instructions) and
+`POST /grammar-variants/propose-from-instructions` (free-form design
+instructions, with optional Claude-guided repair of an invalid proposal —
+see `docs/INSTRUCTION_GUIDED_VARIANTS.md`). Both require
+`GRAPHLAYOUTSYNTH_ENABLE_LLM_VARIANTS=true` and are entirely separate from
+this endpoint's request path. **`POST /suggest-next-room` itself never calls
+Claude**, regardless of which proposal path produced the active variant it
+samples from.
+
 ```powershell
 $env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "env_config"
 $env:GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG = "outputs/llm_grammar_variant.yaml"
