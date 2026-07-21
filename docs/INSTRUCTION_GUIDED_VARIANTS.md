@@ -50,8 +50,10 @@ Required arguments: `--instructions`, `--base-config`, `--output-dir`.
 Optional arguments:
 
 - `--samples` (default `0`): generate this many graph samples with the
-  existing `generate` pipeline, but only if some attempt's proposed config
-  passes validation. `0` validates without generating any graphs.
+  existing `generate` pipeline (using its existing `--visualize` flag, so
+  each sample also gets a PNG — see "PNG visualizations" below), but only if
+  some attempt's proposed config passes validation. `0` validates without
+  generating any graphs or PNGs.
 - `--repair-attempts` (default `0`): if the initial proposal fails
   deterministic validation, send it back to Claude — together with the
   validation errors — up to this many times, stopping at the first attempt
@@ -214,18 +216,19 @@ endpoint in this service calls the LLM. In particular:
 
 ```json
 {
-  "status": "proposed_valid",
+  "status": "generated",
   "variantId": "20260721T090501123456Z-3f9a1c2d",
   "valid": true,
   "repairAttemptsUsed": 1,
-  "generationRan": false,
+  "generationRan": true,
   "artifactDir": "outputs/llm_variants/20260721T090501123456Z-3f9a1c2d",
   "attempts": [
     {"attemptIndex": 0, "kind": "initial", "valid": false, "validationErrorCount": 2, "artifactDir": "outputs/llm_variants/20260721T090501123456Z-3f9a1c2d/attempts/attempt_0_initial"},
     {"attemptIndex": 1, "kind": "repair", "valid": true, "validationErrorCount": 0, "artifactDir": "outputs/llm_variants/20260721T090501123456Z-3f9a1c2d/attempts/attempt_1_repair"}
   ],
   "errors": [],
-  "warnings": []
+  "warnings": [],
+  "generatedSamplesPngDir": "outputs/llm_variants/20260721T090501123456Z-3f9a1c2d/generated_samples"
 }
 ```
 
@@ -234,6 +237,12 @@ endpoint in this service calls the LLM. In particular:
 vocabulary. `variantId` is the registry ID used with the existing
 `GET /grammar-variants/{id}` and `POST /grammar-variants/{id}/activate`
 endpoints — except for dry runs, where it is always `null` (see below).
+`generatedSamplesPngDir` is `null` unless generation actually ran
+(`generationRan: true`); when set, it is the directory containing both the
+generated JSON and their PNG visualizations (see "PNG visualizations"
+above) — the response does not inline image data. Any PNG-rendering
+failures are appended to `warnings` alongside config-validation warnings
+and never fail the request.
 
 ### Dry-run behavior
 
@@ -363,6 +372,32 @@ existing `generate` CLI pipeline (`run_generate`) against the top-level
 the same conventions as `generate` (`candidate_<n>.json`, `ranking_report.json`,
 `best_candidate.json`, etc.) under `<output-dir>/generated_samples/` (CLI) or
 `<artifactDir>/generated_samples/` (HTTP).
+
+### PNG visualizations
+
+When `--samples`/`samples` is greater than `0` and a proposal validates,
+generation also passes the existing `generate --visualize` flag, so each
+generated candidate gets a PNG alongside its JSON — the same
+`visualize_graph` renderer `generate --visualize` already uses; nothing new
+is invented. PNGs land next to their JSON counterparts in
+`generated_samples/` (`candidate_<n>.png`, `top_<rank>_<candidate_id>.png`,
+`best_candidate.png`), not in a separate subdirectory, matching the existing
+`generate --visualize` output layout exactly. `manifest.json` (CLI) and the
+HTTP response both also record `generatedSamplesPngDir` (currently always
+equal to `generatedSamplesDir`, since PNGs are colocated) so a consumer does
+not need to infer where PNGs live.
+
+Rendering is purely deterministic, post-generation, and never involves
+Claude. The JSON graph remains the source artifact — validation, ranking,
+and any downstream tooling read JSON, never PNGs; PNGs exist only for human
+visual inspection and debugging. If rendering fails for one sample (e.g. a
+matplotlib error), the failure is recorded as a warning
+(`manifest.json`'s `visualizationWarnings` / the HTTP response's
+`warnings`, and noted in `review_summary.md`) rather than raised: the
+already-written JSON for that sample, and generation of any remaining
+samples, are unaffected. Requesting `samples=0`, a dry run, or a proposal
+that never validates all produce zero PNGs, exactly as they produce zero
+generated JSON.
 
 `manifest.json` also records `repairAttemptsRequested`, `repairAttemptsUsed`,
 `generationRan`, and an `attempts` list (one entry per attempt, with its

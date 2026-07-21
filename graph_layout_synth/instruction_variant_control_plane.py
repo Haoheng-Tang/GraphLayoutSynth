@@ -200,6 +200,7 @@ def propose_instruction_variant_from_request(
 
         samples_dir: Path | None = None
         generation_ran = False
+        visualization_warnings: list[str] = []
         if proposal.is_valid and request.samples > 0:
             samples_dir = artifact_dir / "generated_samples"
             # Register the validated config before attempting generation, so a
@@ -210,11 +211,14 @@ def propose_instruction_variant_from_request(
             )
             _finalize_record(root, artifact_dir, metadata, pre_generation_record)
             try:
-                run_generation_for_instruction_variant(
-                    proposal.proposed_config_path,
-                    samples_dir,
-                    request.samples,
-                    None,
+                visualization_warnings = (
+                    run_generation_for_instruction_variant(
+                        proposal.proposed_config_path,
+                        samples_dir,
+                        request.samples,
+                        None,
+                    )
+                    or []
                 )
             except Exception as exc:  # noqa: BLE001 - surfaced as a controlled 500
                 raise GrammarVariantControlPlaneError(
@@ -225,6 +229,9 @@ def propose_instruction_variant_from_request(
             generation_ran = True
             metadata["instructionVariant"]["generationRan"] = True
             metadata["artifacts"]["generatedSamplesDir"] = str(samples_dir)
+            metadata["artifacts"]["generatedSamplesPngDir"] = str(samples_dir)
+            if visualization_warnings:
+                metadata["instructionVariant"]["visualizationWarnings"] = visualization_warnings
 
         review_summary_path = artifact_dir / "review_summary.md"
         write_instruction_variant_review_summary(
@@ -239,6 +246,7 @@ def propose_instruction_variant_from_request(
             proposed_config_path=proposal.proposed_config_path,
             samples_requested=request.samples,
             samples_dir=samples_dir,
+            visualization_warnings=visualization_warnings,
         )
         metadata["artifacts"]["reviewSummary"] = str(review_summary_path)
 
@@ -261,7 +269,8 @@ def propose_instruction_variant_from_request(
             artifact_dir=str(artifact_dir),
             attempts=_attempt_summaries(proposal.attempts),
             errors=list(proposal.final_validation_report.get("errors", [])),
-            warnings=list(proposal.final_validation_report.get("warnings", [])),
+            warnings=list(proposal.final_validation_report.get("warnings", [])) + visualization_warnings,
+            generated_samples_png_dir=str(samples_dir) if samples_dir is not None else None,
         )
     except GrammarVariantControlPlaneError:
         raise

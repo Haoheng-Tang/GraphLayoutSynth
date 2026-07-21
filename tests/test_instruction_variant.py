@@ -376,6 +376,7 @@ def test_valid_config_with_samples_calls_generation_pipeline_with_requested_coun
         captured_args["config"] = args.config
         captured_args["num_candidates"] = args.num_candidates
         captured_args["output_dir"] = args.output_dir
+        captured_args["visualize"] = args.visualize
         args.output_dir.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(cli, "run_generate", fake_run_generate)
@@ -386,13 +387,120 @@ def test_valid_config_with_samples_calls_generation_pipeline_with_requested_coun
     assert captured_args["num_candidates"] == 3
     assert captured_args["config"] == output_dir / "proposed_config.yaml"
     assert captured_args["output_dir"] == output_dir / "generated_samples"
+    # The instruction-variant path must reuse the existing `generate --visualize`
+    # flag rather than inventing a separate rendering path.
+    assert captured_args["visualize"] is True
 
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "generated"
     assert manifest["generationRan"] is True
     assert manifest["artifacts"]["generatedSamplesDir"].endswith("generated_samples")
+    assert manifest["artifacts"]["generatedSamplesPngDir"].endswith("generated_samples")
     review = (output_dir / "review_summary.md").read_text(encoding="utf-8")
     assert "Requested 3 sample(s)" in review
+    assert "PNG visualizations" in review
+
+
+def test_generation_with_samples_produces_png_alongside_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end (no mocked `run_generate`): generation writes real PNGs."""
+    valid_config = _base_config()
+    claude = _SequencedClaudeCalls(_fenced_yaml_response(valid_config))
+    monkeypatch.setattr(cli, "propose_grammar_variant_with_claude", claude)
+    output_dir = tmp_path / "out"
+
+    _run(tmp_path, output_dir, ["--samples", "2"])
+
+    samples_dir = output_dir / "generated_samples"
+    json_files = sorted(p.name for p in samples_dir.glob("*.json"))
+    png_files = sorted(p.name for p in samples_dir.glob("*.png"))
+    assert json_files
+    assert png_files
+    assert (samples_dir / "best_candidate.json").is_file()
+    assert (samples_dir / "best_candidate.png").is_file()
+    for png_path in samples_dir.glob("*.png"):
+        assert png_path.stat().st_size > 0
+
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "generated"
+    assert "visualizationWarnings" not in manifest
+
+
+def test_samples_zero_produces_no_png_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid_config = _base_config()
+    claude = _SequencedClaudeCalls(_fenced_yaml_response(valid_config))
+    monkeypatch.setattr(cli, "propose_grammar_variant_with_claude", claude)
+    monkeypatch.setattr(cli, "run_generate", _fail_if_called)
+    output_dir = tmp_path / "out"
+
+    _run(tmp_path, output_dir, ["--samples", "0"])
+
+    assert not list(output_dir.glob("**/*.png"))
+
+
+def test_invalid_config_produces_no_png_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claude = _SequencedClaudeCalls(_invalid_yaml_response("v1"))
+    monkeypatch.setattr(cli, "propose_grammar_variant_with_claude", claude)
+    monkeypatch.setattr(cli, "run_generate", _fail_if_called)
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(SystemExit):
+        _run(tmp_path, output_dir, ["--samples", "5"])
+
+    assert not list(output_dir.glob("**/*.png"))
+
+
+def test_no_call_dry_run_produces_no_png_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "propose_grammar_variant_with_claude", _fail_if_called)
+    output_dir = tmp_path / "out"
+
+    _run(tmp_path, output_dir, ["--no-call", "--samples", "5"])
+
+    assert not list(output_dir.glob("**/*.png"))
+
+
+def test_visualization_failure_records_warning_and_does_not_block_generation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A PNG-rendering failure must not invalidate the generated JSON or call Claude again."""
+    valid_config = _base_config()
+    claude = _SequencedClaudeCalls(_fenced_yaml_response(valid_config))
+    monkeypatch.setattr(cli, "propose_grammar_variant_with_claude", claude)
+
+    def _broken_visualize(*_args: object, **_kwargs: object):
+        raise RuntimeError("simulated rendering failure")
+
+    monkeypatch.setattr(cli, "visualize_graph", _broken_visualize)
+    output_dir = tmp_path / "out"
+
+    _run(tmp_path, output_dir, ["--samples", "2"])
+
+    assert claude.call_count == 1  # visualization failure never triggers another Claude call
+
+    samples_dir = output_dir / "generated_samples"
+    assert list(samples_dir.glob("*.json"))
+    assert not list(samples_dir.glob("*.png"))
+
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "generated"
+    assert manifest["visualizationWarnings"]
+    assert "simulated rendering failure" in manifest["visualizationWarnings"][0]
+
+    review = (output_dir / "review_summary.md").read_text(encoding="utf-8")
+    assert "PNG Visualization Warnings" in review
+    assert "simulated rendering failure" in review
 
 
 def test_samples_zero_validates_but_does_not_generate(

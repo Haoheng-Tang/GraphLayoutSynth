@@ -205,6 +205,7 @@ class InstructionVariantProposeResponse(ApiModel):
     attempts: list[InstructionVariantAttemptSummary] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    generated_samples_png_dir: str | None = None
 
 
 class ProgramRoomTypeCatalogItem(ApiModel):

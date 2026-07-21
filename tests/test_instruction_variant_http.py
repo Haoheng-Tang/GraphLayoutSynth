@@ -470,6 +470,128 @@ def test_repair_success_generates_when_samples_requested(
     assert activation.status_code == 200
 
 
+# --- PNG visualization for generated samples -----------------------------------------
+
+
+def test_generation_produces_png_alongside_json_via_existing_pipeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end (no mocked generation): the real `generate --visualize` pipeline runs."""
+    valid_config = _base_config()
+    claude = _SequencedClaudeCalls(_fenced_yaml_response(valid_config))
+    monkeypatch.setattr(assistant, "propose_grammar_variant_with_claude", claude)
+    client = _enabled_client(tmp_path, monkeypatch)
+    base_config_path = _write_base_config(tmp_path)
+
+    response = client.post(PROPOSE_URL, json=_request_body(base_config_path, samples=2))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "generated"
+    assert body["generationRan"] is True
+
+    samples_dir = Path(body["artifactDir"]) / "generated_samples"
+    assert list(samples_dir.glob("*.json"))
+    png_files = list(samples_dir.glob("*.png"))
+    assert png_files
+    for png_path in png_files:
+        assert png_path.stat().st_size > 0
+    assert body["generatedSamplesPngDir"] == str(samples_dir)
+
+
+def test_samples_zero_does_not_produce_png(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid_config = _base_config()
+    claude = _SequencedClaudeCalls(_fenced_yaml_response(valid_config))
+    monkeypatch.setattr(assistant, "propose_grammar_variant_with_claude", claude)
+    monkeypatch.setattr(
+        instruction_variant_control_plane,
+        "run_generation_for_instruction_variant",
+        _fail_if_called,
+    )
+    client = _enabled_client(tmp_path, monkeypatch)
+    base_config_path = _write_base_config(tmp_path)
+
+    response = client.post(PROPOSE_URL, json=_request_body(base_config_path, samples=0))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert not list(Path(body["artifactDir"]).glob("**/*.png"))
+    assert body["generatedSamplesPngDir"] is None
+
+
+def test_invalid_config_does_not_produce_png(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claude = _SequencedClaudeCalls(_invalid_yaml_response("v1"))
+    monkeypatch.setattr(assistant, "propose_grammar_variant_with_claude", claude)
+    monkeypatch.setattr(
+        instruction_variant_control_plane,
+        "run_generation_for_instruction_variant",
+        _fail_if_called,
+    )
+    client = _enabled_client(tmp_path, monkeypatch)
+    base_config_path = _write_base_config(tmp_path)
+
+    response = client.post(PROPOSE_URL, json=_request_body(base_config_path, samples=10))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert not list(Path(body["artifactDir"]).glob("**/*.png"))
+
+
+def test_dry_run_does_not_produce_png(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(assistant, "propose_grammar_variant_with_claude", _fail_if_called)
+    client = _enabled_client(tmp_path, monkeypatch)
+    base_config_path = _write_base_config(tmp_path)
+
+    response = client.post(PROPOSE_URL, json=_request_body(base_config_path, dryRun=True))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert not list(Path(body["artifactDir"]).glob("**/*.png"))
+    assert body["generatedSamplesPngDir"] is None
+
+
+def test_visualization_failure_records_warning_and_does_not_block_generation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A PNG-rendering failure must not invalidate the generated JSON or call Claude again."""
+    import graph_layout_synth.cli as cli_module
+
+    valid_config = _base_config()
+    claude = _SequencedClaudeCalls(_fenced_yaml_response(valid_config))
+    monkeypatch.setattr(assistant, "propose_grammar_variant_with_claude", claude)
+
+    def _broken_visualize(*_args: object, **_kwargs: object):
+        raise RuntimeError("simulated rendering failure")
+
+    monkeypatch.setattr(cli_module, "visualize_graph", _broken_visualize)
+    client = _enabled_client(tmp_path, monkeypatch)
+    base_config_path = _write_base_config(tmp_path)
+
+    response = client.post(PROPOSE_URL, json=_request_body(base_config_path, samples=2))
+
+    assert response.status_code == 200
+    assert claude.call_count == 1  # visualization failure never triggers another Claude call
+    body = response.json()
+    assert body["status"] == "generated"
+    assert body["generationRan"] is True
+
+    samples_dir = Path(body["artifactDir"]) / "generated_samples"
+    assert list(samples_dir.glob("*.json"))
+    assert not list(samples_dir.glob("*.png"))
+    assert any("simulated rendering failure" in warning for warning in body["warnings"])
+
+
 # --- 6. Repair exhaustion ------------------------------------------------------------
 
 

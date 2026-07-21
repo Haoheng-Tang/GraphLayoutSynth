@@ -18,7 +18,7 @@ from graph_layout_synth.archive import (
     load_selection_file,
     resolve_review_summary_from_selection,
 )
-from graph_layout_synth.config import DEFAULT_CONFIG_PATH, load_config
+from graph_layout_synth.config import DEFAULT_CONFIG_PATH, LayoutConfig, load_config
 from graph_layout_synth.config_contract import build_config_contract
 from graph_layout_synth.config_validator import export_config_validation_report, validate_config_file
 from graph_layout_synth.diversity import (
@@ -213,13 +213,42 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_generate(args: argparse.Namespace) -> None:
-    """Generate candidates, export the best one, and print a short summary."""
+def _visualize_graph_safely(
+    graph: Any,
+    output_path: Path,
+    *,
+    title: str,
+    config: LayoutConfig,
+    warnings: list[str],
+) -> None:
+    """Render one PNG via the existing `visualize_graph` helper, never raising.
+
+    Visualization is diagnostic-only (see CLAUDE.md): a rendering failure for
+    one candidate must not invalidate an otherwise successful generation run
+    or its already-written JSON. Failures are recorded in `warnings` and
+    printed, and generation continues.
+    """
+    try:
+        visualize_graph(graph, output_path, title=title, config=config)
+    except Exception as exc:  # noqa: BLE001 - visualization must never fail a generation run
+        message = f"Failed to render PNG {output_path}: {exc}"
+        warnings.append(message)
+        print(f"Warning: {message}")
+
+
+def run_generate(args: argparse.Namespace) -> dict[str, Any]:
+    """Generate candidates, export the best one, and print a short summary.
+
+    Returns a small summary dict (currently just `visualization_warnings`)
+    for programmatic callers such as `run_generation_for_instruction_variant`;
+    the CLI entry point itself ignores the return value.
+    """
     config = load_config(args.config)
     contract = build_config_contract(_read_yaml_mapping(args.config))
     typed_accessibility_pairs = contract.typed_accessibility_type_pairs(edge_type="door") or None
     num_candidates = args.num_candidates or config.generation.num_candidates
     seed = args.seed if args.seed is not None else config.random_seed_default
+    visualization_warnings: list[str] = []
 
     if num_candidates < 1:
         raise SystemExit("--num-candidates must be at least 1.")
@@ -289,11 +318,12 @@ def run_generate(args: argparse.Namespace) -> None:
             trace_metadata=report_metadata,
         )
         if args.visualize:
-            visualize_graph(
+            _visualize_graph_safely(
                 result.graph,
                 artifacts["image_path"],
                 title=f"{candidate_id}: score {ranking_entry['final_score']:.1f}",
                 config=config,
+                warnings=visualization_warnings,
             )
         candidate_summary = build_candidate_review_summary(
             candidate_id,
@@ -384,17 +414,19 @@ def run_generate(args: argparse.Namespace) -> None:
 
     if args.visualize:
         for item in top_k:
-            visualize_graph(
+            _visualize_graph_safely(
                 item["graph"],
                 args.output_dir / f"top_{item['rank']}_{item['candidate_id']}.png",
                 title=f"{item['candidate_id']}: score {item['final_score']:.1f}",
                 config=config,
+                warnings=visualization_warnings,
             )
-        visualize_graph(
+        _visualize_graph_safely(
             best["graph"],
             args.output_dir / "best_candidate.png",
             title=f"Best candidate: score {best['final_score']:.1f}",
             config=config,
+            warnings=visualization_warnings,
         )
 
     valid_count = sum(1 for result in results if result.is_valid)
@@ -415,6 +447,10 @@ def run_generate(args: argparse.Namespace) -> None:
         )
     if args.visualize:
         print(f"Saved top-k PNG visualizations to {args.output_dir}.")
+        if visualization_warnings:
+            print(f"{len(visualization_warnings)} PNG visualization warning(s) occurred; generated JSON artifacts are unaffected.")
+
+    return {"visualization_warnings": visualization_warnings}
 
 
 def run_validate_config(args: argparse.Namespace) -> None:
@@ -757,11 +793,16 @@ def run_generation_for_instruction_variant(
     output_dir: Path,
     samples: int,
     seed: int | None,
-) -> None:
+) -> list[str]:
     """Run the existing `generate` pipeline unchanged against a proposed config.
 
     Shared by the CLI and the HTTP instruction-variant control plane so
-    graph generation always goes through the one existing pipeline.
+    graph generation always goes through the one existing pipeline. Passes
+    the existing `--visualize` flag so generated samples get PNG
+    visualizations alongside their JSON, through the same rendering code
+    `generate --visualize` already uses -- no separate visualization path.
+    Returns any visualization warnings (rendering never blocks generation or
+    invalidates the generated JSON; see `_visualize_graph_safely`).
     """
     generate_argv = [
         "generate",
@@ -773,11 +814,13 @@ def run_generation_for_instruction_variant(
         str(min(samples, 5)),
         "--output-dir",
         str(output_dir),
+        "--visualize",
     ]
     if seed is not None:
         generate_argv += ["--seed", str(seed)]
     generate_args = build_parser().parse_args(generate_argv)
-    run_generate(generate_args)
+    result = run_generate(generate_args)
+    return list((result or {}).get("visualization_warnings", []))
 
 
 def run_propose_instruction_variant(args: argparse.Namespace) -> None:
@@ -895,13 +938,14 @@ def run_propose_instruction_variant(args: argparse.Namespace) -> None:
 
         is_valid = proposal.is_valid
         samples_dir: Path | None = None
+        visualization_warnings: list[str] = []
         manifest["artifacts"]["proposedConfig"] = str(proposal.proposed_config_path)
         manifest["artifacts"]["configValidationReport"] = str(proposal.validation_report_path)
         if is_valid:
             manifest["status"] = "proposed_valid"
             if args.samples > 0:
                 samples_dir = output_dir / "generated_samples"
-                run_generation_for_instruction_variant(
+                visualization_warnings = run_generation_for_instruction_variant(
                     proposal.proposed_config_path,
                     samples_dir,
                     args.samples,
@@ -910,6 +954,9 @@ def run_propose_instruction_variant(args: argparse.Namespace) -> None:
                 manifest["status"] = "generated"
                 manifest["generationRan"] = True
                 manifest["artifacts"]["generatedSamplesDir"] = str(samples_dir)
+                manifest["artifacts"]["generatedSamplesPngDir"] = str(samples_dir)
+                if visualization_warnings:
+                    manifest["visualizationWarnings"] = visualization_warnings
         else:
             manifest["status"] = "proposed_invalid"
             manifest["errorSummary"] = (
@@ -930,6 +977,7 @@ def run_propose_instruction_variant(args: argparse.Namespace) -> None:
             proposed_config_path=proposal.proposed_config_path,
             samples_requested=args.samples,
             samples_dir=samples_dir,
+            visualization_warnings=visualization_warnings,
         )
         manifest["artifacts"]["reviewSummary"] = str(review_summary_path)
         _write_json_artifact(manifest_path, manifest)
@@ -939,7 +987,9 @@ def run_propose_instruction_variant(args: argparse.Namespace) -> None:
         print(f"Repair attempts used: {manifest['repairAttemptsUsed']} of {args.repair_attempts} requested.")
         print(f"Validation report: {proposal.validation_report_path}.")
         if samples_dir is not None:
-            print(f"Generated {args.samples} sample(s) under {samples_dir}.")
+            print(f"Generated {args.samples} sample(s) (JSON + PNG) under {samples_dir}.")
+            if visualization_warnings:
+                print(f"{len(visualization_warnings)} PNG visualization warning(s); generated JSON is unaffected.")
         print(f"Review summary: {review_summary_path}.")
         if not is_valid:
             print("No graph samples were generated because no attempt produced a valid config.")

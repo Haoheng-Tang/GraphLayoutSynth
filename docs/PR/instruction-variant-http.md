@@ -26,6 +26,12 @@ testing the new endpoint locally: `.env.local` was silently ignored by
 effect unless it was also exported into the shell before starting the
 server.
 
+Finally, this PR adds PNG visualizations for instruction-guided generated
+samples: when `--samples`/`samples > 0` and a proposal validates, generated
+JSON graphs are now accompanied by PNGs, using the existing
+`generate --visualize` flag and `visualize_graph` renderer — no new
+rendering code.
+
 ## Motivation
 
 GraphLayoutSynth already had a validation-guided repair loop for
@@ -175,6 +181,36 @@ running the full suite with a populated `.env.local` present (all tests
 passed) and by a clean-process check confirming `GET /grammar-variants`
 now returns 200 without any variables manually exported into the shell.
 
+## PNG visualizations for generated samples
+
+Generated samples were previously JSON-only, which made them hard to
+inspect. Rather than write a second rendering path, generation now passes
+the existing `generate` CLI's `--visualize` flag from the one shared
+function both entry points already call
+(`cli.run_generation_for_instruction_variant`), so PNGs are produced by the
+same `visualize_graph` renderer `generate --visualize` already uses,
+land next to their JSON counterparts in `generated_samples/`
+(`candidate_<n>.png`, `top_<rank>_<candidate_id>.png`,
+`best_candidate.png`), and follow the exact existing `generate --visualize`
+output layout — no new subdirectory, no new renderer.
+
+Per-sample rendering failures are non-fatal: `run_generate`'s three
+`visualize_graph()` call sites are now wrapped in a small
+`_visualize_graph_safely` helper that catches exceptions, records a warning,
+and continues, so one broken PNG never invalidates its already-written JSON
+or blocks the remaining samples. `run_generate` returns
+`{"visualization_warnings": [...]}`, threaded up through
+`run_generation_for_instruction_variant` into:
+
+- the CLI manifest (`generatedSamplesPngDir`, `visualizationWarnings`) and
+  `review_summary.md`;
+- the HTTP response (appended to the existing `warnings` list;
+  `generatedSamplesPngDir` is `null` unless generation actually ran).
+
+Visualization is purely deterministic and post-generation — Claude is never
+invoked by it, and none of the existing generation, validation, or ranking
+logic changed.
+
 ## Guardrails verified by tests
 
 Dedicated regression tests confirm Claude is never called by:
@@ -203,52 +239,81 @@ all, so any accidental future LLM call in these paths fails loudly.
   variant.
 - `README.md`, `AGENTS.md`, `CLAUDE.md`: endpoint listed, guardrails recorded
   (no LLM calls outside this one gated endpoint; no second variant registry).
+- `docs/INSTRUCTION_GUIDED_VARIANTS.md`: new "PNG visualizations" section
+  (where PNGs land, that rendering is deterministic/post-generation and
+  Claude-free, that JSON remains the source artifact) plus updated
+  request/response examples showing `generatedSamplesPngDir`.
 
 ## Tests
 
-`tests/test_instruction_variant_http.py` (24 tests) covers:
+`tests/test_instruction_variant_http.py` (29 tests) covers:
 
 - request validation: empty/whitespace-only `instructionText`; negative and
   above-cap `repairAttempts`/`samples`
 - feature gate: disabled by default (403), including for dry runs
 - dry run: artifacts written, Claude never called, no activatable variant
-  registered
+  registered, no PNGs produced
 - live valid proposal: registered, listed, activatable, no repair call made
-- initial invalid, no repair: not activatable, no generation, artifacts saved
+- initial invalid, no repair: not activatable, no generation, artifacts
+  saved, no PNGs produced
 - initial invalid, repair succeeds: repair prompt contains the invalid YAML,
   validation errors, and original instructions; activatable with or without
   `samples > 0`; generation called with the requested count only when valid
 - repair exhaustion: every attempt saved, not activatable, no generation
-- generation gating: `samples=0` never calls generation; an invalid config
-  never reaches it even when `samples > 0`
+- generation gating: `samples=0` never calls generation or produces PNGs;
+  an invalid config never reaches either even when `samples > 0`
+- PNG visualization: an unmocked live generation run with `samples > 0`
+  produces real, non-empty PNGs alongside JSON via the existing pipeline
+  flag; a rendering failure (mocked `visualize_graph`) is recorded in the
+  response's `warnings` without blocking Claude-free generation or the
+  already-written JSON
 - the six LLM-call guardrails listed above
 
+`tests/test_instruction_variant.py` (22 tests, CLI) covers the equivalent
+PNG scenarios: the shared generation function is called with
+`--visualize` (verified via a mocked `run_generate` capturing `args`), an
+unmocked live run produces real PNGs next to JSON, `samples=0`/invalid
+config/`--no-call` all produce zero PNGs, and a mocked `visualize_graph`
+failure is recorded in `manifest.json`'s `visualizationWarnings` and
+`review_summary.md` without raising or repeating the Claude call.
+
 Plus regression: all pre-existing CLI, grammar-variant control-plane,
-program-requirements, and `/suggest-next-room` test suites pass unchanged.
+program-requirements, `/suggest-next-room`, and visualization (`visualize.py`)
+test suites pass unchanged.
 
 ## Verification
 
 ```txt
 python -m pytest -q
-277 passed, 1 warning
+287 passed, 1 warning
 
 git diff --check
 passed
 ```
+
+Manual smoke test: ran `propose-instruction-variant` end-to-end with the
+Claude call stubbed to return a known-valid config (`--samples 3
+--repair-attempts 2`) — confirmed `generated_samples/` contains matching
+`.json`/`.png` pairs (`best_candidate.*`, `candidate_<n>.*`,
+`top_<rank>_candidate_<n>.*`), `manifest.json`'s `generatedSamplesPngDir`
+points at that directory, and `review_summary.md` mentions the PNG
+visualizations.
 
 ## Non-goals
 
 This PR does not:
 
 - change `/suggest-next-room`'s request, response, or matching behavior
-- change CLI behavior (all 17 pre-existing instruction-variant CLI tests
-  pass unchanged)
-- implement a new validator or a new generator
+- change CLI behavior beyond adding `--visualize` to the shared generation
+  call (all pre-existing instruction-variant CLI tests pass unchanged)
+- implement a new validator, a new generator, or a new PNG renderer —
+  visualization reuses `visualize_graph`/`generate --visualize` unchanged
 - create a second, independent variant registry
 - implement frontend UI
 - implement PDF ingestion
 - implement background jobs or polling — the endpoint is synchronous
-- let Claude override deterministic validation at any point
+- let Claude override deterministic validation at any point, or involve
+  Claude in visualization at all
 
 ## Review checklist
 
@@ -263,6 +328,11 @@ This PR does not:
       dry runs included.
 - [x] `.env.local` auto-load does not leak into tests (verified against a
       populated `.env.local`).
-- [x] Existing CLI, control-plane, program-requirements, and
+- [x] PNG visualization reuses the existing `generate --visualize` flag and
+      `visualize_graph` renderer; no new rendering code was introduced.
+- [x] A visualization failure is recorded as a warning and never invalidates
+      the generated JSON, blocks remaining samples, or calls Claude.
+- [x] `samples=0`, an invalid config, and dry runs all produce zero PNGs.
+- [x] Existing CLI, control-plane, program-requirements, visualization, and
       `/suggest-next-room` tests pass unchanged.
 - [x] Full test suite passes; `git diff --check` is clean.

@@ -268,6 +268,7 @@ def write_instruction_variant_review_summary(
     proposed_config_path: Path,
     samples_requested: int,
     samples_dir: Path | None,
+    visualization_warnings: list[str] | None = None,
 ) -> None:
     """Write a human-readable summary table of every attempt plus the outcome."""
     repair_attempts_used = max(len(attempts) - 1, 0)
@@ -319,8 +320,20 @@ def write_instruction_variant_review_summary(
     elif samples_requested > 0 and samples_dir is not None:
         lines.append(
             f"Requested {samples_requested} sample(s), generated with the existing "
-            f"deterministic generation pipeline under `{samples_dir}`."
+            f"deterministic generation pipeline under `{samples_dir}`, including PNG "
+            f"visualizations (via the existing `--visualize` pipeline flag) alongside "
+            f"each generated JSON graph for visual inspection."
         )
+        if visualization_warnings:
+            lines += [
+                "",
+                "## PNG Visualization Warnings",
+                (
+                    "Rendering failed for some generated samples; their JSON graphs "
+                    "were still generated and are unaffected."
+                ),
+                *(f"- {warning}" for warning in visualization_warnings),
+            ]
     else:
         lines.append("No graph samples were requested.")
 
