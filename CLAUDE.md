@@ -34,7 +34,7 @@ python -m graph_layout_synth generate --config configs/generic_building.yaml \
 python -m uvicorn server.main:app --reload --port 8000
 ```
 
-Other CLI commands (`graph_layout_synth/cli.py`): `validate-program-requirements` (deterministic preflight of user program requirements — no LLM, no generation), `propose-grammar-variant` (use `--no-call` for a prompt-only dry run that needs no API key), `propose-instruction-variant` (translates a markdown/text design-instructions file into a YAML config variant; same `--no-call` dry run; see `docs/INSTRUCTION_GUIDED_VARIANTS.md`), `archive-final`, `evaluate-llm`.
+Other CLI commands (`graph_layout_synth/cli.py`): `validate-program-requirements` (deterministic preflight of user program requirements — no LLM, no generation), `propose-grammar-variant` (use `--no-call` for a prompt-only dry run that needs no API key), `propose-instruction-variant` (translates a markdown/text design-instructions file into a YAML config variant, with optional `--repair-attempts`; same `--no-call` dry run; see `docs/INSTRUCTION_GUIDED_VARIANTS.md`), `archive-final`, `evaluate-llm`. `propose-instruction-variant`'s HTTP equivalent is `POST /grammar-variants/propose-from-instructions` (`instruction_variant_control_plane.py`), sharing the same attempt/repair engine (`instruction_variant_workflow.py`) and the same variant registry as the CLI — never a second one.
 
 `.env.local` at the repo root holds `ANTHROPIC_API_KEY` for LLM commands. Never commit it. Everything under `outputs/` is git-ignored except `outputs/.gitkeep`.
 
@@ -61,7 +61,7 @@ Key separations to preserve:
 
 ### HTTP API layer
 
-`server/main.py` (FastAPI) exposes `GET /health`, `POST /suggest-next-room`, `GET /program-requirements/room-types` (read-only canonical room-type catalog from the active config's `ConfigContract`; no feature flag), `POST /program-requirements/validate`, and feature-gated grammar-variant endpoints. `graph_layout_synth/api/` holds the Pydantic models, the frontend↔internal ID adapter, strict semantic anchor matching (one-way one-hop multiset coverage over `(neighbor room type, edge type)` signatures — see `docs/PR/semantic-anchor-matching.md`), neighbor and intended-edge aggregation, the mockable `GraphSampler` boundary, and optional debug artifact writing.
+`server/main.py` (FastAPI) exposes `GET /health`, `POST /suggest-next-room`, `GET /program-requirements/room-types` (read-only canonical room-type catalog from the active config's `ConfigContract`; no feature flag), `POST /program-requirements/validate`, and feature-gated grammar-variant endpoints, including `POST /grammar-variants/propose-from-instructions` (`instruction_variant_control_plane.py`), which shares the CLI's attempt/repair engine and the one grammar-variant registry. `graph_layout_synth/api/` holds the Pydantic models, the frontend↔internal ID adapter, strict semantic anchor matching (one-way one-hop multiset coverage over `(neighbor room type, edge type)` signatures — see `docs/PR/semantic-anchor-matching.md`), neighbor and intended-edge aggregation, the mockable `GraphSampler` boundary, and optional debug artifact writing.
 
 Serialization note: the installed FastAPI omits `None`-valued optional fields from response JSON, so optional suggestion fields (`edgeType`, `edgeTypeCounts`, `intendedEdges`) are *absent* on the wire rather than `null` — don't assert their presence in endpoint tests, and know that `model_dump()` (used in debug artifacts) still includes them as `None`.
 

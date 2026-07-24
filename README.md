@@ -76,6 +76,7 @@ The service exposes:
 - `POST /program-requirements/validate`
 - optional feature-gated grammar variant endpoints:
   - `POST /grammar-variants/propose`
+  - `POST /grammar-variants/propose-from-instructions`
   - `GET /grammar-variants`
   - `GET /grammar-variants/{variant_id}`
   - `POST /grammar-variants/{variant_id}/activate`
@@ -492,6 +493,19 @@ original one-shot behavior. If every attempt remains invalid, every proposal
 is saved for inspection but no graphs are generated. See
 `docs/INSTRUCTION_GUIDED_VARIANTS.md` for the full artifact list, prompt
 contents, and limitations.
+
+The same workflow is exposed over HTTP as
+`POST /grammar-variants/propose-from-instructions`, gated the same way as
+the rest of `/grammar-variants/*` (`GRAPHLAYOUTSYNTH_ENABLE_LLM_VARIANTS=true`,
+including dry runs). A valid instruction-guided proposal is registered as a
+normal grammar variant — no second registry — so it is immediately visible
+via `GET /grammar-variants`, inspectable via `GET /grammar-variants/{id}`,
+and activatable via `POST /grammar-variants/{id}/activate`. Claude is called
+only for this one endpoint with `dryRun=false` and non-empty
+`instructionText`; `/suggest-next-room`, the room-type catalog, program
+validation, and variant listing/inspection/activation never call it. See
+`docs/INSTRUCTION_GUIDED_VARIANTS.md#http-endpoint` for the request/response
+shapes.
 
 ## Grammar Rules
 
