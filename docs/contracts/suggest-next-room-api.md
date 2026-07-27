@@ -37,14 +37,30 @@ $env:NEXT_ROOM_ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
 python -m uvicorn server.main:app --reload --port 8000
 ```
 
-`POST /suggest-next-room` uses `configs/generic_building.yaml` by default.
-The sampler config source is selected by `GRAPHLAYOUTSYNTH_GRAMMAR_MODE` and
-re-resolved on **every** suggestion request:
+## Grammar variant config source
+
+**`POST /suggest-next-room` never calls Claude.** It samples from an
+already-validated GraphLayoutSynth YAML config as a deterministic input.
+Claude is only involved when a grammar variant is explicitly proposed or
+repaired through the separate, feature-gated `/grammar-variants/*` endpoints.
+
+The config the sampler uses is selected by `GRAPHLAYOUTSYNTH_GRAMMAR_MODE`
+and re-resolved on **every** suggestion request:
 
 - `static` (default): `configs/generic_building.yaml`
 - `env_config`: the path in `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG`
 - `active_variant`: the validated variant currently activated through the
   grammar-variant control plane
+
+When the mode is omitted, behavior is backward-compatible:
+`GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` is used when set, otherwise the static
+default config.
+
+```powershell
+$env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "env_config"
+$env:GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG = "outputs/llm_grammar_variant.yaml"
+python -m uvicorn server.main:app --reload --port 8000
+```
 
 In `active_variant` mode, activating a variant
 (`POST /grammar-variants/{variantId}/activate`) takes effect on the next
@@ -65,19 +81,13 @@ requirements or heuristic instructions) and
 instructions, with optional Claude-guided repair of an invalid proposal —
 see `docs/INSTRUCTION_GUIDED_VARIANTS.md`). Both require
 `GRAPHLAYOUTSYNTH_ENABLE_LLM_VARIANTS=true` and are entirely separate from
-this endpoint's request path. **`POST /suggest-next-room` itself never calls
-Claude**, regardless of which proposal path produced the active variant it
-samples from.
+this endpoint's request path, regardless of which proposal path produced the
+active variant it samples from.
 
-```powershell
-$env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "env_config"
-$env:GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG = "outputs/llm_grammar_variant.yaml"
-python -m uvicorn server.main:app --reload --port 8000
-```
-
-When the mode is omitted, behavior is backward-compatible:
-`GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` is used when set, otherwise the static
-default config.
+When suggestion debug artifacts are enabled (see "Server-side debug
+artifacts"), each run's `aggregation_report.json` includes a `configSource`
+block recording the resolved grammar mode, config path, and variant ID when
+applicable.
 
 ## Canonical room types
 
