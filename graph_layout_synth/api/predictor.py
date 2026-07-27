@@ -44,6 +44,14 @@ class NextRoomPredictor:
             anchor_node_id,
             request.sample_count,
         )
+        config_source = getattr(self.sampler, "last_config_source", None)
+        if config_source is not None:
+            LOGGER.info(
+                "Suggestion sampler config source: mode=%s configPath=%s variantId=%s",
+                config_source.mode,
+                config_source.config_path,
+                config_source.variant_id,
+            )
         actual_sample_count = len(generated_graphs)
         candidate_evidence = aggregate_candidate_evidence_from_matching_nodes(
             adapted.graph,
@@ -74,7 +82,9 @@ class NextRoomPredictor:
                 anchor_node_id,
                 generated_graphs,
                 response,
-                getattr(self.sampler, "config", None),
+                getattr(self.sampler, "last_resolved_config", None)
+                or getattr(self.sampler, "config", None),
+                config_source=config_source,
             )
         except Exception:
             LOGGER.warning(

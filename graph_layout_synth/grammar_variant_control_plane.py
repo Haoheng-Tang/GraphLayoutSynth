@@ -174,10 +174,10 @@ def variant_detail(
     return detail
 
 
-def active_variant_config_path(
+def active_variant_pointer(
     output_root: str | Path | None = None,
-) -> Path:
-    """Return the validated config path for the active variant."""
+) -> dict[str, Any]:
+    """Return the active-variant pointer record (variantId, validatedConfigPath)."""
     path = active_variant_path(output_root)
     if not path.exists():
         raise GrammarVariantControlPlaneError(
@@ -191,7 +191,14 @@ def active_variant_config_path(
             "Active grammar variant pointer is missing validatedConfigPath.",
             status_code=500,
         )
-    return Path(config_path)
+    return data
+
+
+def active_variant_config_path(
+    output_root: str | Path | None = None,
+) -> Path:
+    """Return the validated config path for the active variant."""
+    return Path(active_variant_pointer(output_root)["validatedConfigPath"])
 
 
 def activate_variant(

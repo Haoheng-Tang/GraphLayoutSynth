@@ -17,7 +17,6 @@ variant state.
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -28,17 +27,11 @@ from graph_layout_synth.api.models import (
 )
 from graph_layout_synth.api.sampling import (
     GRAMMAR_MODE_ACTIVE_VARIANT,
-    GRAMMAR_MODE_ENV,
     GRAMMAR_MODE_ENV_CONFIG,
     GRAMMAR_MODE_STATIC,
-    SUGGESTION_CONFIG_PATH_ENV,
+    resolve_suggestion_config_source,
 )
-from graph_layout_synth.config import DEFAULT_CONFIG_PATH
 from graph_layout_synth.config_contract import build_config_contract
-from graph_layout_synth.grammar_variant_control_plane import (
-    GrammarVariantControlPlaneError,
-    active_variant_config_path,
-)
 from graph_layout_synth.program_preflight import load_raw_config_mapping
 
 
@@ -54,38 +47,28 @@ class RoomTypeCatalogError(RuntimeError):
     """Raised when the room-type catalog cannot be built."""
 
 
+_CATALOG_SOURCE_LABELS = {
+    GRAMMAR_MODE_STATIC: CATALOG_SOURCE_DEFAULT,
+    GRAMMAR_MODE_ENV_CONFIG: CATALOG_SOURCE_ENV,
+    GRAMMAR_MODE_ACTIVE_VARIANT: CATALOG_SOURCE_ACTIVE_VARIANT,
+}
+
+
 def resolve_catalog_config_path() -> tuple[str, Path]:
     """Return the catalog's config source label and path.
 
-    Follows the same resolution as the suggestion sampler: explicit
-    `GRAPHLAYOUTSYNTH_GRAMMAR_MODE`, or the backward-compatible fallback of
-    `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` when set, otherwise the default
-    config. In active-variant mode a missing/invalid pointer fails explicitly
-    rather than silently falling back.
+    Delegates to `resolve_suggestion_config_source`, the same resolution the
+    `/suggest-next-room` sampler uses on every request, so the catalog and the
+    suggestion sampler can never disagree about which config is active. In
+    active-variant mode a missing/invalid pointer fails explicitly rather
+    than silently falling back.
     """
-    mode = os.getenv(GRAMMAR_MODE_ENV, "").strip().lower()
-    configured_path = os.getenv(SUGGESTION_CONFIG_PATH_ENV)
-    if not mode:
-        mode = GRAMMAR_MODE_ENV_CONFIG if configured_path else GRAMMAR_MODE_STATIC
-
-    if mode == GRAMMAR_MODE_STATIC:
-        return CATALOG_SOURCE_DEFAULT, Path(DEFAULT_CONFIG_PATH)
-    if mode == GRAMMAR_MODE_ENV_CONFIG:
-        if not configured_path:
-            raise RoomTypeCatalogError(
-                f"{SUGGESTION_CONFIG_PATH_ENV} must be set when "
-                f"{GRAMMAR_MODE_ENV}=env_config."
-            )
-        return CATALOG_SOURCE_ENV, Path(configured_path).expanduser()
-    if mode == GRAMMAR_MODE_ACTIVE_VARIANT:
-        try:
-            return CATALOG_SOURCE_ACTIVE_VARIANT, active_variant_config_path()
-        except GrammarVariantControlPlaneError as exc:
-            raise RoomTypeCatalogError(str(exc)) from exc
-    raise RoomTypeCatalogError(
-        f"Unsupported {GRAMMAR_MODE_ENV} '{mode}'. Expected static, "
-        "env_config, or active_variant."
-    )
+    try:
+        source = resolve_suggestion_config_source()
+    except ValueError as exc:
+        raise RoomTypeCatalogError(str(exc)) from exc
+    assert source.config_path is not None
+    return _CATALOG_SOURCE_LABELS[source.mode], source.config_path
 
 
 def display_name_for_room_type(room_type: str) -> str:

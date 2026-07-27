@@ -492,4 +492,5 @@ def test_sampler_can_use_config_path_from_environment(
 
     assert samples == [generated]
     assert loaded_paths == [config_path]
-    assert sampler.config is expected_config
+    assert sampler.last_resolved_config is expected_config
+    assert sampler.config is None
