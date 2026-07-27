@@ -70,16 +70,23 @@ python -m uvicorn server.main:app --reload --port 8000
 
 The service exposes:
 
-- `GET /health`
-- `POST /suggest-next-room`
-- `GET /program-requirements/room-types`
-- `POST /program-requirements/validate`
-- optional feature-gated grammar variant endpoints:
-  - `POST /grammar-variants/propose`
-  - `POST /grammar-variants/propose-from-instructions`
-  - `GET /grammar-variants`
-  - `GET /grammar-variants/{variant_id}`
-  - `POST /grammar-variants/{variant_id}/activate`
+| Method | Route | Usage |
+| --- | --- | --- |
+| `GET` | `/health` | Liveness check; returns `{"status": "ok"}`. |
+| `POST` | `/suggest-next-room` | Ranked next-room-type suggestions for one anchor room in a submitted floorplan snapshot. Deterministic sampling from the active config; never calls Claude. |
+| `GET` | `/program-requirements/room-types` | Read-only canonical room-type catalog (`{id, displayName}`) derived from the active config's contract; resolves the same config source as the suggestion sampler. No feature flag. |
+| `POST` | `/program-requirements/validate` | Deterministic program-requirements preflight (`feasible` / `feasible_with_relaxation` / `infeasible`); no LLM call, no generation. |
+| `POST` | `/grammar-variants/propose` | Propose a config variant from heuristic instructions or structured requirements. Calls Claude unless `dryRun`. |
+| `POST` | `/grammar-variants/propose-from-instructions` | Propose a config variant from free-form design-instruction text, with optional Claude-guided repair attempts. Calls Claude unless `dryRun`. |
+| `GET` | `/grammar-variants` | List all registered variant records (valid, invalid, dry-run, failed). |
+| `GET` | `/grammar-variants/{variant_id}` | Inspect one variant: registry record, metadata, and validated YAML when available. |
+| `POST` | `/grammar-variants/{variant_id}/activate` | Activate a `valid` variant. In `active_variant` grammar mode it drives the next suggestion request — no server restart needed. |
+| `GET` | `/docs`, `/openapi.json` | FastAPI interactive documentation and OpenAPI schema. |
+
+All `/grammar-variants/*` endpoints are feature-gated: they return HTTP 403
+unless `GRAPHLAYOUTSYNTH_ENABLE_LLM_VARIANTS=true`. Browser clients also send
+`OPTIONS` CORS preflight requests, which the server answers for allowed
+origins (`GET`/`POST`/`OPTIONS`).
 
 NextRoomPredictor should call the suggestion endpoint only when the user clicks a `+` handle. The v1 API predicts semantic/topological neighbor room types; it does not accept a required `side` or direction and does not return geometry. The frontend keeps responsibility for clicked-side placement and overlap validation.
 
