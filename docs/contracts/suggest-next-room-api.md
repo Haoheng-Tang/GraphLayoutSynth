@@ -38,13 +38,25 @@ python -m uvicorn server.main:app --reload --port 8000
 ```
 
 `POST /suggest-next-room` uses `configs/generic_building.yaml` by default.
-The sampler config is selected by `GRAPHLAYOUTSYNTH_GRAMMAR_MODE` before the
-server starts:
+The sampler config source is selected by `GRAPHLAYOUTSYNTH_GRAMMAR_MODE` and
+re-resolved on **every** suggestion request:
 
 - `static` (default): `configs/generic_building.yaml`
 - `env_config`: the path in `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG`
-- `active_variant`: the validated variant activated through the grammar-variant
-  control plane
+- `active_variant`: the validated variant currently activated through the
+  grammar-variant control plane
+
+In `active_variant` mode, activating a variant
+(`POST /grammar-variants/{variantId}/activate`) takes effect on the next
+suggestion request — no backend restart is needed, and the frontend does not
+need to do anything to "refresh" the sampler. Conversely, if the mode is
+`static` or `env_config`, activated variants have **no effect** on
+suggestions.
+
+If the mode is `active_variant` but no valid active variant exists (nothing
+activated yet, or the activated config file was removed), the endpoint
+returns a controlled HTTP 400 instead of silently falling back to the base
+config. Treat it like any other 400: show local fallback suggestions.
 
 A variant becomes activatable through two feature-gated proposal paths that
 share one registry: `POST /grammar-variants/propose` (structured
@@ -78,9 +90,12 @@ GET /program-requirements/room-types
 ```
 
 The catalog returns deterministic, sorted `{id, displayName}` entries derived
-from the active config (following the same static/env-config/active-variant
-resolution as the suggestion sampler), so an activated grammar variant's
-vocabulary appears automatically. Use the canonical `id` values as
+from the active config. It resolves its config through exactly the same
+shared static/env-config/active-variant logic as the suggestion sampler,
+re-evaluated per request, so the catalog and `/suggest-next-room` always
+reflect the same config: when a variant is activated mid-session, its
+vocabulary appears in the catalog and drives suggestions from the next
+request onward, with no restart. Use the canonical `id` values as
 `rooms[].type` in floorplan snapshots and map any user-entered names to them.
 Unknown labels are accepted by request validation, but the generated grammar
 never produces them, so they cannot be semantically matched or suggested. See
@@ -663,8 +678,11 @@ gets a separate timestamp-and-random-ID directory containing:
   generated signatures, subtracted extras, per-graph candidates, the known
   frontend-neighbor target mapping, and per-match intended-edge evidence
   (known-neighbor correspondents, candidate nodes, detected secondary edges)
-* `aggregation_report.json`: match totals, per-room support counts, and the
-  exact suggestions returned
+* `aggregation_report.json`: match totals, per-room support counts, the
+  exact suggestions returned, and a `configSource` block
+  (`mode`/`configPath`/`variantId`) recording which config the sampler
+  actually used — the way to confirm an activated variant is really driving
+  suggestions
 * `README.md`: concise human-readable run summary
 
 Optional PNG rendering is enabled by `includeDebugVisualizations: true` or:
@@ -786,7 +804,8 @@ The server returns JSON errors with a `detail` field.
 
 ### HTTP 400
 
-The request is invalid. Common causes include:
+The request is invalid, or the backend's configured suggestion config source
+cannot be resolved. Common causes include:
 
 * missing `floorplan`, `anchorRoomId`, or `sampleCount`
 * empty or duplicate room IDs
@@ -795,6 +814,16 @@ The request is invalid. Common causes include:
 * non-positive room width or height
 * an unsupported `edgeType`
 * `sampleCount` outside `1..200` or sent as a string/decimal
+* the backend runs in `active_variant` mode with no activated variant
+  (`detail`: `"No active grammar variant is configured."`) or with an
+  activated config file that no longer exists — the backend fails explicitly
+  rather than silently sampling from the base config
+* the backend runs in `env_config` mode without
+  `GRAPHLAYOUTSYNTH_SUGGESTION_CONFIG` set
+
+The config-source causes are backend deployment issues, not request bugs:
+the frontend cannot fix them by changing the payload. Handle them with the
+same local-fallback behavior as any other 400.
 
 `detail` may be a string or an array of validation objects. Log it during
 development, but present a short fallback message to users.
