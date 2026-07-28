@@ -17,9 +17,9 @@ class RuleSchemaError(ValueError):
 MATCH_KEYS = {"type", "zone", "zone_type", "is_abstract"}
 ACTION_KEYS = {"remove_matched_node", "update_matched_node_attributes", "create_nodes", "create_edges"}
 CREATE_NODE_KEYS = {"alias", "type", "count", "attributes"}
-CREATE_EDGE_KEYS = {"source", "target", "edge_type", "mode"}
+CREATE_EDGE_KEYS = {"source", "target", "edge_type", "mode", "max_sources_per_target"}
 NODE_ATTRIBUTE_KEYS = {"type", "zone", "zone_type", "is_abstract"}
-EDGE_MODES = {"one_to_one", "each_to_one", "one_to_each", "adjacent_pairs"}
+EDGE_MODES = {"one_to_one", "each_to_one", "one_to_each", "adjacent_pairs", "balanced_each_to_one"}
 SPECIAL_ALIASES = {"matched", "__neighbors__"}
 
 
@@ -229,6 +229,29 @@ def validate_grammar_rule(
         mode = entry.get("mode", "one_to_one")
         if mode not in EDGE_MODES:
             raise _error(rule, f"{edge_path}.mode", f"invalid mode '{mode}'.", index)
+        capacity = entry.get("max_sources_per_target")
+        if mode == "balanced_each_to_one":
+            if capacity is None:
+                raise _error(
+                    rule,
+                    f"{edge_path}.max_sources_per_target",
+                    "is required for mode 'balanced_each_to_one'.",
+                    index,
+                )
+            if not isinstance(capacity, int) or isinstance(capacity, bool) or capacity < 1:
+                raise _error(
+                    rule,
+                    f"{edge_path}.max_sources_per_target",
+                    "must be a positive integer.",
+                    index,
+                )
+        elif capacity is not None:
+            raise _error(
+                rule,
+                f"{edge_path}.max_sources_per_target",
+                "is only supported with mode 'balanced_each_to_one'.",
+                index,
+            )
 
 
 def load_grammar_rules(config: dict) -> list[dict]:
@@ -305,17 +328,26 @@ def apply_grammar_rule(
         targets = _resolve_alias(entry["target"], alias_nodes, neighbors)
         mode = entry.get("mode", "one_to_one")
         edge_type = entry["edge_type"]
-        new_edges = _create_edges(graph, sources, targets, mode, edge_type)
-        created_edges.extend(new_edges)
-        sampled_parameters["create_edges"].append(
-            {
-                "source": entry["source"],
-                "target": entry["target"],
-                "mode": mode,
-                "edge_type": edge_type,
-                "created_edge_count": len(new_edges),
-            }
+        new_edges = _create_edges(
+            graph,
+            sources,
+            targets,
+            mode,
+            edge_type,
+            max_sources_per_target=entry.get("max_sources_per_target"),
+            rule_name=rule.get("name"),
         )
+        created_edges.extend(new_edges)
+        edge_parameters = {
+            "source": entry["source"],
+            "target": entry["target"],
+            "mode": mode,
+            "edge_type": edge_type,
+            "created_edge_count": len(new_edges),
+        }
+        if mode == "balanced_each_to_one":
+            edge_parameters["max_sources_per_target"] = entry.get("max_sources_per_target")
+        sampled_parameters["create_edges"].append(edge_parameters)
 
     if action.get("remove_matched_node", False):
         removed_node_ids.append(matched_node)
@@ -370,8 +402,20 @@ def _resolve_alias(name: str, alias_nodes: dict[str, list[str]], neighbors: list
     return alias_nodes[name]
 
 
-def _create_edges(graph: nx.Graph, sources: list[str], targets: list[str], mode: str, edge_type: str) -> list[dict[str, str]]:
+def _create_edges(
+    graph: nx.Graph,
+    sources: list[str],
+    targets: list[str],
+    mode: str,
+    edge_type: str,
+    max_sources_per_target: int | None = None,
+    rule_name: str | None = None,
+) -> list[dict[str, str]]:
     created_edges = []
+    if mode == "balanced_each_to_one":
+        return _create_balanced_each_to_one_edges(
+            graph, sources, targets, edge_type, max_sources_per_target, rule_name
+        )
     if not sources or not targets:
         return created_edges
     if mode == "adjacent_pairs":
@@ -393,6 +437,49 @@ def _create_edges(graph: nx.Graph, sources: list[str], targets: list[str], mode:
             created_edges.append({"source": sources[0], "target": target, "edge_type": edge_type})
         return created_edges
     for source, target in zip(sources, targets):
+        graph.add_edge(source, target, edge_type=edge_type)
+        created_edges.append({"source": source, "target": target, "edge_type": edge_type})
+    return created_edges
+
+
+def _create_balanced_each_to_one_edges(
+    graph: nx.Graph,
+    sources: list[str],
+    targets: list[str],
+    edge_type: str,
+    max_sources_per_target: int | None,
+    rule_name: str | None,
+) -> list[dict[str, str]]:
+    """Assign every source to one target, round-robin, within a capacity limit.
+
+    Sources are distributed over the resolved target order, so target loads
+    differ by at most one and every target is used once sources outnumber
+    targets. The feasibility check runs before any edge is added; an
+    infeasible assignment raises without partially modifying the graph.
+    """
+    label = f"grammar rule '{rule_name}'" if rule_name else "grammar rule"
+    if (
+        not isinstance(max_sources_per_target, int)
+        or isinstance(max_sources_per_target, bool)
+        or max_sources_per_target < 1
+    ):
+        raise RuleSchemaError(
+            f"{label}: mode 'balanced_each_to_one' requires max_sources_per_target "
+            "to be a positive integer."
+        )
+    if not sources:
+        return []
+    total_capacity = len(targets) * max_sources_per_target
+    if len(sources) > total_capacity:
+        raise RuleSchemaError(
+            f"{label}: mode 'balanced_each_to_one' cannot assign {len(sources)} "
+            f"source(s) to {len(targets)} target(s) with "
+            f"max_sources_per_target={max_sources_per_target} "
+            f"(total capacity {total_capacity})."
+        )
+    created_edges = []
+    for source_index, source in enumerate(sources):
+        target = targets[source_index % len(targets)]
         graph.add_edge(source, target, edge_type=edge_type)
         created_edges.append({"source": source, "target": target, "edge_type": edge_type})
     return created_edges

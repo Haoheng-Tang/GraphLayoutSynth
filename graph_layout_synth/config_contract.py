@@ -434,7 +434,13 @@ def build_config_contract(config: dict[str, Any]) -> ConfigContract:
     grammar_rule_names = _grammar_rule_names(config)
     schema_summary = {
         "rule_count": len(grammar_rule_names),
-        "supported_edge_modes": ["adjacent_pairs", "each_to_one", "one_to_each", "one_to_one"],
+        "supported_edge_modes": [
+            "adjacent_pairs",
+            "balanced_each_to_one",
+            "each_to_one",
+            "one_to_each",
+            "one_to_one",
+        ],
         "supports_create_node_count_ranges": True,
         "supports_type_choices": True,
     }

@@ -251,9 +251,11 @@ Each `create_edges` entry must include:
 - `target`
 - `edge_type`
 
-Optional field:
+Optional fields:
 
 - `mode`
+- `max_sources_per_target` (required for, and only allowed with,
+  `mode: balanced_each_to_one`; must be a positive integer)
 
 Supported edge modes:
 
@@ -261,6 +263,20 @@ Supported edge modes:
 - `each_to_one`
 - `one_to_each`
 - `adjacent_pairs`
+- `balanced_each_to_one`
+
+`each_to_one` deliberately connects every source node to the **first**
+resolved target node — use it when one shared hub (for example a single
+corridor) should receive all sources. `balanced_each_to_one` instead
+distributes the source nodes across **all** resolved target nodes
+round-robin in target order: every source gets exactly one target, target
+loads differ by at most one, every target is used once sources outnumber
+targets, and no target ever receives more than `max_sources_per_target`
+sources. If the sources cannot fit
+(`source count > target count × max_sources_per_target`), rule application
+fails with a clear error instead of creating a partial or overloaded
+assignment — size the created-node counts and capacity so the assignment is
+feasible.
 
 `source` and `target` must reference a created-node alias or one of these special aliases:
 
@@ -279,7 +295,17 @@ create_edges:
     target: room
     edge_type: wall
     mode: adjacent_pairs
+  - source: patient
+    target: clinical
+    edge_type: door
+    mode: balanced_each_to_one
+    max_sources_per_target: 4
 ```
+
+With 15 `patient` nodes and 5 `clinical` nodes, the balanced entry above
+assigns exactly three patients to every clinical node; with 14 patients the
+loads become `3, 3, 3, 3, 2`. It never concentrates all sources on the
+first target.
 
 ## Compact Valid Rule Example
 

@@ -525,7 +525,10 @@ Supported features include:
 - stochastic min/max counts, such as `count: {min: 3, max: 5}`
 - stochastic choices, such as `type: {choices: [PatientRoom, ClinicalSupport]}`
 - created-node aliases for edge creation
-- edge modes: `one_to_one`, `each_to_one`, `one_to_each`, and `adjacent_pairs`
+- edge modes: `one_to_one`, `each_to_one`, `one_to_each`, `adjacent_pairs`,
+  and `balanced_each_to_one` (capacity-constrained round-robin assignment via
+  a required `max_sources_per_target` positive integer; `each_to_one` keeps
+  its existing all-sources-to-first-target behavior)
 - the special `matched` alias, plus `__neighbors__` for existing neighbors
 
 Example:
@@ -569,6 +572,25 @@ grammar_rules:
           edge_type: wall
           mode: adjacent_pairs
 ```
+
+To distribute sources across all targets instead of concentrating them on
+the first target, use `balanced_each_to_one` with a per-target capacity:
+
+```yaml
+create_edges:
+  - source: patient
+    target: clinical
+    edge_type: door
+    mode: balanced_each_to_one
+    max_sources_per_target: 4
+```
+
+Every source connects to exactly one target round-robin in target order, so
+loads differ by at most one (15 patients over 5 clinical nodes gives
+`3, 3, 3, 3, 3`) and no target exceeds the capacity. An infeasible
+assignment (`source count > target count × max_sources_per_target`) fails
+rule application with a clear error instead of creating a partial
+assignment.
 
 The generator still contains older built-in expansion helpers, but config-defined grammar rules are used when present.
 
