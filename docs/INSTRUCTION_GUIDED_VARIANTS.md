@@ -293,6 +293,37 @@ and the config is never used for generation or made activatable.
    now samples from the instruction-guided config — still without ever
    calling Claude itself.
 
+Activation takes effect on the next `/suggest-next-room` request without a
+server restart: the sampler re-resolves the active-variant pointer on every
+request and only reuses the parsed config while the active variant is
+unchanged. The full flow is:
+
+```txt
+propose instruction variant
+→ validate/repair (deterministic validation decides)
+→ activate valid variant
+→ /suggest-next-room samples from active variant config
+```
+
+Two things to keep explicit:
+
+- **`GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant` is required.** In `static`
+  (the default) or `env_config` mode, activated variants have **no effect**
+  on suggestions — activation only moves the pointer; the mode decides
+  whether the pointer is read.
+- **No silent fallback.** If active-variant mode is set but no valid active
+  pointer exists (or its config file is gone), `/suggest-next-room` returns a
+  controlled HTTP 400 instead of quietly using the base config, so it is
+  always unambiguous whether variants are actually in use. The
+  `GET /program-requirements/room-types` catalog resolves through exactly the
+  same logic, so catalog vocabulary and suggestion sampling can never
+  disagree about the active config.
+
+When suggestion debug artifacts are enabled, `aggregation_report.json`
+records a `configSource` block (`mode`, `configPath`, `variantId`), and the
+server logs the same triple per request — the public `/suggest-next-room`
+response schema is unchanged.
+
 An invalid proposal (initial or after exhausting repairs) is still saved
 with a `variantId` and appears in `GET /grammar-variants` for inspection, but
 `POST /grammar-variants/{variantId}/activate` returns HTTP 400 for it, the

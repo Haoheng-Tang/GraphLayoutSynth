@@ -23,6 +23,7 @@ from graph_layout_synth.api.models import (
     SuggestNextRoomRequest,
     SuggestNextRoomResponse,
 )
+from graph_layout_synth.api.sampling import SuggestionConfigSource
 from graph_layout_synth.api.semantic_anchor_matching import (
     NeighborRelation,
     build_anchor_neighbor_signature,
@@ -97,6 +98,7 @@ class SuggestionArtifactWriter:
         generated_graphs: Sequence[nx.Graph],
         response: SuggestNextRoomResponse,
         visualization_config: LayoutConfig | None = None,
+        config_source: SuggestionConfigSource | None = None,
     ) -> Path | None:
         """Save one debug run when its request or environment gate is enabled."""
         settings = SuggestionDebugSettings.from_request(request)
@@ -136,6 +138,8 @@ class SuggestionArtifactWriter:
             response,
             matching_report,
         )
+        if config_source is not None:
+            aggregation_report["configSource"] = config_source.as_report_dict()
         self._write_json(
             run_directory / "aggregation_report.json",
             aggregation_report,

@@ -141,6 +141,23 @@ $env:GRAPHLAYOUTSYNTH_GRAMMAR_MODE = "active_variant"
 python -m uvicorn server.main:app --reload --port 8000
 ```
 
+Activating a variant (heuristic- or instruction-generated) takes effect on
+the next `/suggest-next-room` request — no server restart needed. The
+active-variant pointer is re-read on every request; the parsed config is
+reused only while the active variant is unchanged. `/suggest-next-room`
+never calls Claude in any mode: the activated config is a purely
+deterministic sampling input.
+
+If `GRAPHLAYOUTSYNTH_GRAMMAR_MODE` is not `active_variant`, activated
+variants do **not** affect suggestions. If it is `active_variant` and no
+valid active pointer exists (or the validated config file is missing), the
+endpoint returns a controlled HTTP 400 rather than silently falling back to
+the base config. `GET /program-requirements/room-types` resolves its config
+through the same shared logic, so the room-type catalog and the suggestion
+sampler always reflect the same active config. When debug artifacts are
+enabled, each run's `aggregation_report.json` includes a `configSource`
+block (`mode`, `configPath`, `variantId`); the response schema is unchanged.
+
 ## Suggest a next room
 
 ```bash
