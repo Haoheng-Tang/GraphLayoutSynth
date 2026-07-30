@@ -7,6 +7,7 @@ from typing import Any
 
 import networkx as nx
 
+from graph_layout_synth.config_contract import is_corridor_node_type
 from graph_layout_synth.validators import (
     ValidationResult,
     abstract_nodes,
@@ -71,7 +72,8 @@ def _room_nodes(graph: nx.Graph) -> list[str]:
         node
         for node, attrs in graph.nodes(data=True)
         if not attrs.get("is_abstract", False)
-        and attrs.get("type") not in {"BuildingFloor", "Corridor", "Zone"}
+        and attrs.get("type") not in {"BuildingFloor", "Zone"}
+        and not is_corridor_node_type(attrs.get("type"))
     ]
 
 
@@ -79,7 +81,7 @@ def _corridor_nodes(graph: nx.Graph) -> list[str]:
     return [
         node
         for node, attrs in graph.nodes(data=True)
-        if attrs.get("type") == "Corridor"
+        if is_corridor_node_type(attrs.get("type"))
     ]
 
 

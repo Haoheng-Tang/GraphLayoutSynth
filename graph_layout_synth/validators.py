@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import networkx as nx
 
 from graph_layout_synth.config import LayoutConfig, load_config
+from graph_layout_synth.config_contract import is_corridor_node_type
 from graph_layout_synth.grammar import VALID_EDGE_TYPES
 
 
@@ -28,7 +29,7 @@ def room_has_corridor_access(graph: nx.Graph, node: str) -> bool:
     for neighbor in graph.neighbors(node):
         edge_type = graph.edges[node, neighbor].get("edge_type")
         neighbor_type = graph.nodes[neighbor].get("type")
-        if edge_type == "door" and neighbor_type == "Corridor":
+        if edge_type == "door" and is_corridor_node_type(neighbor_type):
             return True
     return False
 
@@ -38,7 +39,7 @@ def rooms_have_corridor_access(graph: nx.Graph) -> bool:
     for node, attrs in graph.nodes(data=True):
         node_type = attrs.get("type")
         is_abstract = attrs.get("is_abstract", False)
-        if not is_abstract and node_type not in {"Corridor", "Zone"}:
+        if not is_abstract and node_type != "Zone" and not is_corridor_node_type(node_type):
             if not room_has_corridor_access(graph, node):
                 return False
     return True

@@ -187,7 +187,13 @@ def test_unknown_adjacency_room_type_fails_against_config_vocabulary() -> None:
 
 
 def test_feasible_within_preferred_internal_bounds() -> None:
-    result = run_program_preflight(_requirements(), raw_config=_base_config())
+    # PatientRoom counts sit inside the default grammar's reachable range
+    # (two ward zones x 10-12 patients), so no reachability warning fires.
+    requirements = _requirements(
+        room_mix={"PatientRoom": {"min": 20, "target": 22, "max": 24}}
+    )
+
+    result = run_program_preflight(requirements, raw_config=_base_config())
 
     assert result.valid is True
     assert result.feasibility == "feasible"

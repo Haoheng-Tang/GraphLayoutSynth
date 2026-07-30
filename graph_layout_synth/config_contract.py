@@ -12,6 +12,18 @@ DEFAULT_ACCESSIBILITY_SOURCE = "PatientRoom"
 DEFAULT_ACCESSIBILITY_TARGET = "ClinicalSupport"
 
 
+def is_corridor_node_type(node_type: Any) -> bool:
+    """Return whether a node type is corridor-like by the fallback token rule.
+
+    This is the same token rule `_infer_corridor_types` uses when a config
+    defines no explicit corridor semantic group. Validators and metric
+    helpers that receive bare graphs (no config in scope) share this test so
+    `Corridor`, `OnStageCorridor`, and `OffStageCorridor` are treated
+    uniformly.
+    """
+    return isinstance(node_type, str) and FALLBACK_CORRIDOR_TOKEN in node_type.lower()
+
+
 @dataclass(frozen=True)
 class ConfigContract:
     """Live vocabulary and constraints derived from a raw YAML config."""
@@ -255,39 +267,91 @@ def grammar_created_node_types(config: dict[str, Any]) -> list[str]:
     return _unique(created)
 
 
+def _match_extra_attributes(rule: dict[str, Any]) -> dict[str, Any]:
+    """Return match constraints beyond the structural type/is_abstract keys."""
+    match = rule.get("match")
+    if not isinstance(match, dict):
+        return {}
+    return {key: value for key, value in match.items() if key not in {"type", "is_abstract"}}
+
+
+def _floor_zone_entries(config: dict[str, Any]) -> list[tuple[dict[str, Any], tuple[int, int]]]:
+    """Return (attributes, count range) for each Zone the floor rule creates."""
+    floor_rule = _find_rule(config, "BuildingFloor")
+    if not floor_rule:
+        return []
+    entries = []
+    for entry in _rule_create_node_entries(floor_rule):
+        if "Zone" in _type_values(entry.get("type")):
+            attributes = entry.get("attributes")
+            if not isinstance(attributes, dict):
+                attributes = {}
+            entries.append((attributes, _count_range(entry.get("count", 1))))
+    return entries
+
+
+def _zone_rules(config: dict[str, Any]) -> list[dict[str, Any]]:
+    rules = config.get("grammar_rules", [])
+    if not isinstance(rules, list):
+        return []
+    return [
+        rule
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("match", {}).get("type") == "Zone"
+    ]
+
+
 def reachable_room_count_ranges(
     config: dict[str, Any],
     room_types: list[str] | None = None,
 ) -> dict[str, dict[str, int]]:
     """Estimate reachable total-count ranges for zone-rule-created node types.
 
-    Ranges combine the estimated zone-count range with per-zone create counts.
-    Only exact (non-choice) type specs in the Zone rule produce a range;
-    stochastic choice types have no computable range and are omitted.
+    Each Zone-matching grammar rule contributes its per-zone create counts
+    multiplied by the count range of the floor-created zones whose attributes
+    satisfy that rule's extra match constraints (e.g. `zone_type`), so
+    configs with several differently-typed zone rules are estimated
+    per rule rather than multiplying one rule's counts by every zone.
+    Only exact (non-choice) type specs produce a range; stochastic choice
+    types have no computable range and are omitted.
     """
-    zone_rule = _find_rule(config, "Zone")
-    if not zone_rule:
+    zone_rules = _zone_rules(config)
+    if not zone_rules:
         return {}
-    zone_min, zone_max = _estimated_zone_count_range(config)
+    floor_zone_entries = _floor_zone_entries(config)
     requested = set(room_types) if room_types is not None else None
-    per_zone_ranges: dict[str, tuple[int, int]] = {}
-    for entry in _rule_create_node_entries(zone_rule):
-        values = _type_values(entry.get("type"))
-        if len(values) != 1:
+    totals: dict[str, tuple[int, int]] = {}
+    for zone_rule in zone_rules:
+        extra_match = _match_extra_attributes(zone_rule)
+        if floor_zone_entries:
+            zone_min = 0
+            zone_max = 0
+            for attributes, (entry_min, entry_max) in floor_zone_entries:
+                if all(attributes.get(key) == value for key, value in extra_match.items()):
+                    zone_min += entry_min
+                    zone_max += entry_max
+        else:
+            zone_min, zone_max = _estimated_zone_count_range(config)
+        if not zone_min and not zone_max:
             continue
-        node_type = values[0]
-        if requested is not None and node_type not in requested:
-            continue
-        count_min, count_max = _count_range(entry.get("count", 1))
-        previous_min, previous_max = per_zone_ranges.get(node_type, (0, 0))
-        per_zone_ranges[node_type] = (previous_min + count_min, previous_max + count_max)
+        per_zone_ranges: dict[str, tuple[int, int]] = {}
+        for entry in _rule_create_node_entries(zone_rule):
+            values = _type_values(entry.get("type"))
+            if len(values) != 1:
+                continue
+            node_type = values[0]
+            if requested is not None and node_type not in requested:
+                continue
+            count_min, count_max = _count_range(entry.get("count", 1))
+            previous_min, previous_max = per_zone_ranges.get(node_type, (0, 0))
+            per_zone_ranges[node_type] = (previous_min + count_min, previous_max + count_max)
+        for node_type, (count_min, count_max) in per_zone_ranges.items():
+            total_min, total_max = totals.get(node_type, (0, 0))
+            totals[node_type] = (total_min + zone_min * count_min, total_max + zone_max * count_max)
 
     return {
-        node_type: {
-            "min": zone_min * count_range[0],
-            "max": zone_max * count_range[1],
-        }
-        for node_type, count_range in sorted(per_zone_ranges.items())
+        node_type: {"min": total_range[0], "max": total_range[1]}
+        for node_type, total_range in sorted(totals.items())
     }
 
 

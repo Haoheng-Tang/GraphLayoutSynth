@@ -37,7 +37,7 @@ def test_generation_trace_records_sampled_parameters_and_is_deterministic():
     cluster_events = [
         event
         for event in first
-        if event.rule_name == "expand_zone_to_room_cluster"
+        if event.rule_name in {"expand_ward_zone", "expand_service_zone"}
     ]
     assert cluster_events
     assert all("create_nodes" in event.sampled_parameters for event in cluster_events)

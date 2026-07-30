@@ -47,7 +47,49 @@ def test_default_catalog_returns_sorted_unique_room_types() -> None:
     payload = response.json()
     room_types = payload["roomTypes"]
     ids = [item["id"] for item in room_types]
-    assert ids == ["ClinicalSupport", "Corridor", "PatientRoom", "StaffSupport"]
+    # Expanded healthcare vocabulary: room_like plus corridor types.
+    expected_present = {
+        "PatientRoom",
+        "OnStageCorridor",
+        "OffStageCorridor",
+        "NurseStation",
+        "TeamRoom",
+        "Office",
+        "ConferenceRoom",
+        "MedicationRoom",
+        "CleanUtility",
+        "SoiledUtility",
+        "NourishmentRoom",
+        "LinenRoom",
+        "EquipmentRoom",
+        "StorageRoom",
+        "RespiratoryTherapyRoom",
+        "PPEStorage",
+        "ConsultRoom",
+        "StaffLounge",
+        "StaffToilet",
+        "PublicToilet",
+        "VisitorLounge",
+        "FamilyRoom",
+        "Dayroom",
+        "DiningRoom",
+        "Stair",
+        "Elevator",
+        "MEPRoom",
+        "ElectricalRoom",
+        "MechanicalRoom",
+        "TelecomRoom",
+        "UtilityRoom",
+        "Kitchen",
+        # Legacy compatibility types remain in the catalog.
+        "Corridor",
+        "ClinicalSupport",
+        "StaffSupport",
+    }
+    assert set(ids) == expected_present
+    # Abstract structural types never appear.
+    assert "BuildingFloor" not in ids
+    assert "Zone" not in ids
     assert all(item["id"] for item in room_types)
     assert len(ids) == len(set(ids))
     assert ids == sorted(ids)
@@ -61,12 +103,16 @@ def test_catalog_display_names_are_humanized() -> None:
     display_names = {
         item["id"]: item["displayName"] for item in payload["roomTypes"]
     }
-    assert display_names == {
-        "ClinicalSupport": "Clinical support",
-        "Corridor": "Corridor",
-        "PatientRoom": "Patient room",
-        "StaffSupport": "Staff support",
-    }
+    assert display_names["PatientRoom"] == "Patient room"
+    assert display_names["OnStageCorridor"] == "On stage corridor"
+    assert display_names["OffStageCorridor"] == "Off stage corridor"
+    assert display_names["NurseStation"] == "Nurse station"
+    assert display_names["CleanUtility"] == "Clean utility"
+    assert display_names["MEPRoom"] == "MEP room"
+    assert display_names["PPEStorage"] == "PPE storage"
+    assert display_names["Stair"] == "Stair"
+    assert display_names["ClinicalSupport"] == "Clinical support"
+    assert display_names["Corridor"] == "Corridor"
 
 
 def test_display_name_helper_handles_acronyms() -> None:

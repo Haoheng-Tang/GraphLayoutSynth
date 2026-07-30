@@ -2,15 +2,61 @@
   "schemaVersion": 1,
   "program": {
     "roomMix": {
-      "PatientRoom": { "min": 50, "target": 56, "max": 60 },
-      "ClinicalSupport": { "min": 6, "target": 8, "max": 10 },
-      "StaffSupport": { "min": 4, "target": 6, "max": 8 },
-      "Corridor": { "min": 6, "target": 10, "max": 16 }
+      "PatientRoom": {
+        "min": 50,
+        "target": 56,
+        "max": 60
+      },
+      "NurseStation": {
+        "min": 4,
+        "target": 5,
+        "max": 6
+      },
+      "CleanUtility": {
+        "min": 3,
+        "target": 4,
+        "max": 5
+      },
+      "StaffLounge": {
+        "min": 2,
+        "target": 3,
+        "max": 4
+      },
+      "OnStageCorridor": {
+        "min": 6,
+        "target": 10,
+        "max": 16
+      },
+      "Stair": {
+        "min": 2,
+        "target": 2,
+        "max": 3
+      },
+      "Elevator": {
+        "min": 1,
+        "target": 2,
+        "max": 2
+      }
     }
   },
   "adjacencyPreferences": [
-    { "source": "PatientRoom", "target": "Corridor", "edgeType": "door", "priority": "required" },
-    { "source": "ClinicalSupport", "target": "Corridor", "edgeType": "door", "priority": "preferred" },
-    { "source": "PatientRoom", "target": "PatientRoom", "edgeType": "wall", "priority": "preferred" }
+    {
+      "source": "PatientRoom",
+      "target": "OnStageCorridor",
+      "edgeType": "door",
+      "priority": "required"
+    },
+    {
+      "source": "NurseStation",
+      "target": "OnStageCorridor",
+      "edgeType": "door",
+      "priority": "preferred"
+    },
+    {
+      "source": "PatientRoom",
+      "target": "PatientRoom",
+      "edgeType": "wall",
+      "priority": "preferred"
+    }
   ]
 }

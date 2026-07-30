@@ -5,9 +5,11 @@
 # generation parameters (local group sizes, corridor hub limits, relaxation
 # limits) are internal and never belong in this file.
 #
-# Note: with the default configs/generic_building.yaml, the Corridor counts
-# below intentionally trigger a reachability warning: the current static
-# grammar generates exactly 3 corridors, so meeting a target of 10 corridors
+# Room types are canonical IDs from GET /program-requirements/room-types
+# (see docs/ROOM_VOCABULARY.md). Note: with the default
+# configs/generic_building.yaml, the counts below intentionally trigger
+# reachability warnings: the current static grammar generates 20-24 patient
+# rooms and exactly 4 OnStageCorridor nodes, so meeting these larger targets
 # requires proposing a validated config variant. Preflight warnings do not
 # block variant proposal; errors do.
 
@@ -19,26 +21,38 @@ program:
       min: 50
       target: 56
       max: 60
-    ClinicalSupport:
-      min: 6
-      target: 8
-      max: 10
-    StaffSupport:
+    NurseStation:
       min: 4
-      target: 6
-      max: 8
-    Corridor:
+      target: 5
+      max: 6
+    CleanUtility:
+      min: 3
+      target: 4
+      max: 5
+    StaffLounge:
+      min: 2
+      target: 3
+      max: 4
+    OnStageCorridor:
       min: 6
       target: 10
       max: 16
+    Stair:
+      min: 2
+      target: 2
+      max: 3
+    Elevator:
+      min: 1
+      target: 2
+      max: 2
 
 adjacencyPreferences:
   - source: PatientRoom
-    target: Corridor
+    target: OnStageCorridor
     edgeType: door
     priority: required
-  - source: ClinicalSupport
-    target: Corridor
+  - source: NurseStation
+    target: OnStageCorridor
     edgeType: door
     priority: preferred
   - source: PatientRoom

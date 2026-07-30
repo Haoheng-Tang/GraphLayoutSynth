@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import networkx as nx
 
+from graph_layout_synth.config_contract import is_corridor_node_type
 from graph_layout_synth.validators import (
     ValidationResult,
     abstract_nodes,
@@ -20,7 +21,7 @@ def score_graph(graph: nx.Graph, validation: ValidationResult | None = None) -> 
         score += 100.0
 
     for node, attrs in graph.nodes(data=True):
-        if attrs.get("type") != "Corridor" and not attrs.get("is_abstract", False):
+        if not is_corridor_node_type(attrs.get("type")) and not attrs.get("is_abstract", False):
             if room_has_corridor_access(graph, node):
                 score += 5.0
 
