@@ -144,6 +144,41 @@ counts inside the new reachable range.
   `active_variant` mode correctly showed the *old* vocabulary from a
   still-activated July variant — active-variant resolution is intact.)
 
+## Follow-up: catalog freshness investigation
+
+A report that the frontend Program Requirements panel still showed the old
+four-type vocabulary while `/suggest-next-room` used the new one was
+investigated against the live backend in the user's exact configuration
+(`GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant` from `.env.local`):
+
+- **The backend catalog is correct.** It returned all 35 expanded types
+  (`source: active_variant`), sorted and unique, with no hardcoded or
+  filtered list anywhere — the vocabulary is derived from the resolved
+  config's `room_like` ∪ `corridor` contract groups.
+- **The mismatch was temporal, not a code defect.** Until the user
+  re-proposed and activated a variant built from the updated base config,
+  the previously activated (pre-expansion) variant correctly pinned the old
+  vocabulary in active-variant mode; a frontend that cached the earlier
+  catalog response keeps showing it until it refetches. A troubleshooting
+  section was added to `docs/ROOM_VOCABULARY.md`.
+- **One genuine backend inconsistency was found and fixed:**
+  `POST /program-requirements/validate` defaulted to the static base config
+  regardless of grammar mode, so in active-variant mode the catalog could
+  offer a variant-only room type that validation then rejected as
+  `UNKNOWN_ROOM_TYPE`. Without an explicit `baseConfigPath`, the endpoint
+  now resolves its vocabulary through the same shared
+  `resolve_suggestion_config_source()` as the catalog and the suggestion
+  sampler, with the same explicit 400 when active-variant mode has no
+  pointer. An explicit `baseConfigPath` still always wins, and behavior
+  with no grammar mode set is unchanged (static default).
+
+Added tests (`tests/test_active_variant_suggestion_source.py`, 6 new):
+catalog/suggestions source consistency in static and env-config modes
+(active-variant already covered); validation accepting a variant-only
+`Lounge` type in active-variant mode while still rejecting it against the
+default config; explicit `baseConfigPath` override; explicit 400 on a
+missing active pointer.
+
 ## Non-goals
 
 - No frontend code, no frontend add/remove of canonical types, no custom

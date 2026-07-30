@@ -179,6 +179,14 @@ optional inline `constraintProfile`. Response fields: `valid`, `feasibility`,
 `errors`, `warnings`, where each issue has `code`, `severity`, `message`, and
 optional `path`, `suggestion`, and `debugDetails`.
 
+Without an explicit `baseConfigPath`, the validation vocabulary comes from
+the same shared config-source resolution as the room-type catalog and the
+`/suggest-next-room` sampler (`GRAPHLAYOUTSYNTH_GRAMMAR_MODE`:
+static/env-config/active-variant, with the usual unset-mode fallback), so
+the catalog can never offer a room type this endpoint then rejects. An
+explicit `baseConfigPath` always wins. In active-variant mode a missing
+pointer fails explicitly with HTTP 400, matching the catalog.
+
 This endpoint never calls the LLM and never generates graphs, so it is safe
 for frontend preflight validation. It requires no feature flag.
 

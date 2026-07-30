@@ -130,3 +130,26 @@ ConfigContract.
 Optional types (for example `Kitchen`, `FamilyRoom`, `TelecomRoom`) validate
 the same way; generating them requires an instruction-guided or manual
 config variant whose grammar creates them.
+
+## Troubleshooting: catalog shows the old vocabulary
+
+The catalog, Program Requirements validation (without an explicit
+`baseConfigPath`), and `/suggest-next-room` all resolve the same config
+source per request. If the frontend still shows the old four-type
+vocabulary after this expansion:
+
+1. **An old activated variant is pinned.** With
+   `GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant`, all three endpoints
+   correctly serve the *activated variant's* vocabulary — a variant
+   proposed before the vocabulary expansion keeps its old
+   `allowed_node_types` forever. Check `GET /grammar-variants` for the
+   active record and its creation date; re-propose a variant from the
+   updated base config and activate it (takes effect on the next request,
+   no restart), or unset the grammar mode to serve the static default.
+2. **The frontend cached the catalog response.** The backend does not set
+   cache headers; if the frontend fetches the catalog once at startup, it
+   must refetch after a variant activation or a backend config change.
+
+`curl http://127.0.0.1:8000/program-requirements/room-types` shows what the
+backend is actually serving — its `source` and `configPath` fields name the
+resolved config.

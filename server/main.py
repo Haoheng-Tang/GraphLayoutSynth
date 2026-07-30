@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
@@ -25,6 +26,7 @@ from graph_layout_synth.api.room_type_catalog import (
     RoomTypeCatalogError,
     room_type_catalog_response,
 )
+from graph_layout_synth.api.sampling import resolve_suggestion_config_source
 from graph_layout_synth.config import DEFAULT_CONFIG_PATH
 from graph_layout_synth.generation_constraint_profile import ConstraintProfileError, parse_constraint_profile
 from graph_layout_synth.grammar_variant_control_plane import (
@@ -135,10 +137,24 @@ def create_app(predictor: NextRoomPredictor | None = None) -> FastAPI:
     def validate_program_requirements(
         request: ProgramRequirementsValidateRequest,
     ) -> dict:
-        """Deterministic preflight validation; never calls the LLM or generates graphs."""
+        """Deterministic preflight validation; never calls the LLM or generates graphs.
+
+        Without an explicit ``baseConfigPath``, the vocabulary comes from the
+        same shared config-source resolution the room-type catalog and the
+        suggestion sampler use (static/env-config/active-variant), so the
+        catalog can never offer a room type this endpoint then rejects.
+        """
+        if request.base_config_path:
+            config_path: str | Path = request.base_config_path
+        else:
+            try:
+                resolved = resolve_suggestion_config_source().config_path
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            config_path = resolved if resolved is not None else DEFAULT_CONFIG_PATH
         try:
             profile = parse_constraint_profile(request.constraint_profile)
-            raw_config = load_raw_config_mapping(request.base_config_path or DEFAULT_CONFIG_PATH)
+            raw_config = load_raw_config_mapping(config_path)
             result = run_program_preflight(
                 request.program_requirements,
                 raw_config=raw_config,
