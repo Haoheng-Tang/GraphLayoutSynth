@@ -5,7 +5,7 @@ from graph_layout_synth.validators import validate_graph
 
 def test_validators_accept_expected_valid_graph():
     graph = nx.Graph()
-    graph.add_node("corridor", type="Corridor", zone="zone_1", is_abstract=False)
+    graph.add_node("corridor", type="OnStageCorridor", zone="zone_1", is_abstract=False)
     graph.add_node("room", type="Room", zone="zone_1", is_abstract=False)
     graph.add_edge("corridor", "room", edge_type="door")
 
@@ -17,7 +17,7 @@ def test_validators_accept_expected_valid_graph():
 
 def test_validators_reject_room_without_corridor_access():
     graph = nx.Graph()
-    graph.add_node("corridor", type="Corridor", zone="zone_1", is_abstract=False)
+    graph.add_node("corridor", type="OnStageCorridor", zone="zone_1", is_abstract=False)
     graph.add_node("room", type="Room", zone="zone_1", is_abstract=False)
     graph.add_edge("corridor", "room", edge_type="wall")
 

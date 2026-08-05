@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +70,10 @@ class LayoutConfig:
     ranking: RankingSettings
     visualization: VisualizationSettings
     grammar_rules: list[dict[str, Any]]
+    # Contract-derived vocabulary context, so graph-level consumers
+    # (validators, metrics) never re-hardcode circulation or support names.
+    corridor_node_types: list[str] = field(default_factory=list)
+    support_node_types: list[str] = field(default_factory=list)
 
 
 def _require_mapping(data: dict[str, Any], key: str) -> dict[str, Any]:
@@ -165,8 +169,6 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
     allowed_node_types = _require_list(config, "allowed_node_types")
     allowed_edge_types = _require_list(config, "allowed_edge_types")
     zone_types = _require_list(config, "zone_types")
-    if "Corridor" not in allowed_node_types:
-        raise ConfigError("Config field 'allowed_node_types' must include 'Corridor'.")
     if "door" not in allowed_edge_types:
         raise ConfigError("Config field 'allowed_edge_types' must include 'door'.")
 
@@ -211,6 +213,21 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
     contract = build_config_contract(config)
     if contract.errors:
         raise ConfigError("Config contract validation failed: " + "; ".join(contract.errors))
+    # Circulation is a declared property, not a spelling convention: the
+    # corridor semantic group (or its token-rule fallback) must resolve to at
+    # least one allowed node type.
+    if not contract.corridor_node_types:
+        raise ConfigError(
+            "Config must declare at least one circulation node type: define "
+            "semantic_node_groups.corridor with members listed in allowed_node_types."
+        )
+    unknown_corridor_types = set(contract.corridor_node_types) - set(allowed_node_types)
+    if unknown_corridor_types:
+        raise ConfigError(
+            "Corridor semantic group includes types not listed in allowed_node_types: "
+            + ", ".join(sorted(unknown_corridor_types))
+            + "."
+        )
 
     try:
         grammar_rules = load_grammar_rules(config)
@@ -241,6 +258,8 @@ def validate_config(config: dict[str, Any]) -> LayoutConfig:
         ranking=_ranking_settings(config),
         visualization=_visualization_settings(config),
         grammar_rules=grammar_rules,
+        corridor_node_types=list(contract.corridor_node_types),
+        support_node_types=list(contract.support_node_types),
     )
 
 

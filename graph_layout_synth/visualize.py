@@ -16,8 +16,12 @@ from matplotlib.patches import Patch
 from graph_layout_synth.config import LayoutConfig
 
 
+# Built-in fallback colors for graphs rendered without a config; the active
+# config's visualization.node_colors is the real palette.
 NODE_COLORS = {
-    "Corridor": "#f2cc8f",
+    "OnStageCorridor": "#f2cc8f",
+    "OffStageCorridor": "#d9b26f",
+    "PatientRoom": "#e07a5f",
     "Room": "#e07a5f",
     "SupportRoom": "#81b29a",
     "ServiceRoom": "#3d405b",

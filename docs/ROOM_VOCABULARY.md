@@ -21,6 +21,11 @@ represented.
    instruction-guided variants can generate them; they simply require a
    config variant whose grammar creates them.
 
+The catalog exposes the tier per entry: `generated: bool` and
+`tier: "generated" | "optional"`, derived from the active config's grammar
+rules through the same config-source resolution as the suggestion sampler.
+Only `generated` types can appear in `/suggest-next-room` results.
+
 ## Design rules
 
 - **Graph node types are flat.** Every canonical ID is a single PascalCase
@@ -79,24 +84,30 @@ represented.
 Structural types `BuildingFloor` and `Zone` exist during generation but are
 never user-facing program room types.
 
-## Legacy compatibility types
+## Removed legacy types
 
-`Corridor`, `ClinicalSupport`, and `StaffSupport` remain in
-`allowed_node_types` (and the catalog) so older payloads, configs, and
-tests keep validating. Default generation no longer produces them: corridors
-are generated as `OnStageCorridor`/`OffStageCorridor`, and detailed support
-types replace the two coarse support types. All corridor types belong to the
-`corridor` semantic group, and every module that needs "is this a corridor?"
-uses the shared token rule (any type containing "corridor"), so legacy and
-new corridor types behave uniformly in validation and metrics.
+`Corridor`, `ClinicalSupport`, and `StaffSupport` are no longer canonical:
+they were removed from `allowed_node_types`, the semantic groups, the
+catalog, and the visualization palette. Circulation is generated as
+`OnStageCorridor`/`OffStageCorridor`, and the detailed support types replace
+the two coarse support types. Circulation is a *declared* property: the
+`corridor` semantic group is the source of truth for "is this a corridor?"
+across validators and metrics, with the old name-token rule kept only as a
+fallback for configs that declare no corridor group.
+
+Imported floorplans may still carry legacy labels. Request validation
+accepts unknown `rooms[].type` strings, so such payloads keep working — the
+labels simply cannot be semantically matched, so those anchors produce empty
+suggestions and the frontend uses its local fallback. There is no migration
+or alias layer.
 
 Conceptual names that are *not* canonical node types (represent them via
-groups or map them to existing types): `Administration`, `ClinicalSupport`
-(category sense), `StaffSupport` (category sense), `PatientSupport`,
-`PublicAmenity`, `Infrastructure`, `UnitClerk`, `ChargeRN`, `TeamStation`,
-`Touchdown`, `Charting`, `SupportAlcove`, `UnitSpecific`, `Balcony`, `EMS`.
-For example, team-station/touchdown/charting concepts map to `NurseStation`
-or `TeamRoom`.
+groups or map them to existing types): `Administration`, `ClinicalSupport`,
+`StaffSupport`, `PatientSupport`, `PublicAmenity`, `Infrastructure`,
+`UnitClerk`, `ChargeRN`, `TeamStation`, `Touchdown`, `Charting`,
+`SupportAlcove`, `UnitSpecific`, `Balcony`, `EMS`. For example,
+team-station/touchdown/charting concepts map to `NurseStation` or
+`TeamRoom`.
 
 ## Semantic groups
 

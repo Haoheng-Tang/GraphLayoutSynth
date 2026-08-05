@@ -31,7 +31,10 @@ from graph_layout_synth.api.sampling import (
     GRAMMAR_MODE_STATIC,
     resolve_suggestion_config_source,
 )
-from graph_layout_synth.config_contract import build_config_contract
+from graph_layout_synth.config_contract import (
+    build_config_contract,
+    grammar_created_node_types,
+)
 from graph_layout_synth.program_preflight import load_raw_config_mapping
 
 
@@ -88,7 +91,13 @@ def build_room_type_catalog(
     source: str,
     config_path: str | Path,
 ) -> ProgramRoomTypeCatalogResponse:
-    """Build the deterministic catalog from one raw config mapping."""
+    """Build the deterministic catalog from one raw config mapping.
+
+    ``generated``/``tier`` come from the same config's grammar rules
+    (`grammar_created_node_types`), so an activated variant that generates
+    different types changes the tier flags together with the vocabulary —
+    the catalog and the suggestion sampler can never disagree.
+    """
     contract = build_config_contract(raw_config)
     if contract.errors:
         raise RoomTypeCatalogError(
@@ -98,11 +107,14 @@ def build_room_type_catalog(
     room_types = sorted(
         set(contract.room_like_node_types) | set(contract.corridor_node_types)
     )
+    generated_types = set(grammar_created_node_types(raw_config))
     return ProgramRoomTypeCatalogResponse(
         room_types=[
             ProgramRoomTypeCatalogItem(
                 id=room_type,
                 display_name=display_name_for_room_type(room_type),
+                generated=room_type in generated_types,
+                tier="generated" if room_type in generated_types else "optional",
             )
             for room_type in room_types
         ],

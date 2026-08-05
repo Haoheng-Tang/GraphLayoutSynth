@@ -67,30 +67,40 @@ class CandidateMetrics:
     support_room_ratio: float
 
 
-def _room_nodes(graph: nx.Graph) -> list[str]:
+def _room_nodes(graph: nx.Graph, corridor_types: set[str] | None = None) -> list[str]:
     return [
         node
         for node, attrs in graph.nodes(data=True)
         if not attrs.get("is_abstract", False)
         and attrs.get("type") not in {"BuildingFloor", "Zone"}
-        and not is_corridor_node_type(attrs.get("type"))
+        and not is_corridor_node_type(attrs.get("type"), corridor_types)
     ]
 
 
-def _corridor_nodes(graph: nx.Graph) -> list[str]:
+def _corridor_nodes(graph: nx.Graph, corridor_types: set[str] | None = None) -> list[str]:
     return [
         node
         for node, attrs in graph.nodes(data=True)
-        if is_corridor_node_type(attrs.get("type"))
+        if is_corridor_node_type(attrs.get("type"), corridor_types)
     ]
 
 
-def _support_room_count(graph: nx.Graph, rooms: list[str]) -> int:
-    support_types = {"SupportRoom", "ServiceRoom", "ClinicalSupport", "StaffSupport"}
+# Fallback support detection for bare-graph calls without config context;
+# the config's `support` semantic group is the source of truth when passed.
+FALLBACK_SUPPORT_TYPES = {"SupportRoom", "ServiceRoom", "ClinicalSupport", "StaffSupport"}
+
+
+def _support_room_count(
+    graph: nx.Graph,
+    rooms: list[str],
+    support_types: set[str] | None = None,
+) -> int:
+    if support_types is not None:
+        return sum(1 for node in rooms if graph.nodes[node].get("type") in support_types)
     return sum(
         1
         for node in rooms
-        if graph.nodes[node].get("type") in support_types
+        if graph.nodes[node].get("type") in FALLBACK_SUPPORT_TYPES
         or "support" in str(graph.nodes[node].get("type", "")).lower()
     )
 
@@ -116,14 +126,22 @@ def _room_to_corridor_distances(graph: nx.Graph, rooms: list[str], corridors: li
 def compute_candidate_metrics(
     G: nx.Graph,
     validation_report: ValidationResult | None = None,
+    corridor_types: set[str] | None = None,
+    support_types: set[str] | None = None,
 ) -> CandidateMetrics:
-    """Compute transparent ranking metrics for one candidate graph."""
+    """Compute transparent ranking metrics for one candidate graph.
+
+    ``corridor_types``/``support_types`` are the active config's declared
+    semantic groups; without them the shared fallback rules apply.
+    """
     if validation_report is None:
         validation_report = validate_graph(G)
 
-    rooms = _room_nodes(G)
-    corridors = _corridor_nodes(G)
-    rooms_with_access = sum(1 for node in rooms if room_has_corridor_access(G, node))
+    rooms = _room_nodes(G, corridor_types)
+    corridors = _corridor_nodes(G, corridor_types)
+    rooms_with_access = sum(
+        1 for node in rooms if room_has_corridor_access(G, node, corridor_types)
+    )
     corridor_access_ratio = rooms_with_access / len(rooms) if rooms else 1.0
     edge_types = [attrs.get("edge_type") for _, _, attrs in G.edges(data=True)]
     node_count = G.number_of_nodes()
@@ -132,7 +150,7 @@ def compute_candidate_metrics(
     door_edge_count = sum(1 for edge_type in edge_types if edge_type == "door")
     wall_edge_count = sum(1 for edge_type in edge_types if edge_type == "wall")
     distances = _room_to_corridor_distances(G, rooms, corridors)
-    support_room_count = _support_room_count(G, rooms)
+    support_room_count = _support_room_count(G, rooms, support_types)
 
     return CandidateMetrics(
         node_count=node_count,
@@ -244,6 +262,8 @@ def rank_candidates(
     weights: dict[str, float] | None = None,
     targets: dict[str, float] | None = None,
     top_k: int | None = None,
+    corridor_types: set[str] | None = None,
+    support_types: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Rank candidates by deterministic metric score."""
     weights, targets = _split_ranking_settings(weights, targets)
@@ -259,7 +279,12 @@ def rank_candidates(
                 is_valid=candidate.is_valid,
                 errors=candidate.validation_errors,
             )
-        metrics = compute_candidate_metrics(graph, validation_report)
+        metrics = compute_candidate_metrics(
+            graph,
+            validation_report,
+            corridor_types=corridor_types,
+            support_types=support_types,
+        )
         metrics_dict = asdict(metrics)
         ranking_settings = _candidate_value(candidate, "ranking_settings")
         candidate_weights = weights

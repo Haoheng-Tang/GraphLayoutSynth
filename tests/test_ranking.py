@@ -10,7 +10,7 @@ from graph_layout_synth.ranking import (
 
 def _valid_graph() -> nx.Graph:
     graph = nx.Graph()
-    graph.add_node("corridor", type="Corridor", zone="zone_1", is_abstract=False)
+    graph.add_node("corridor", type="OnStageCorridor", zone="zone_1", is_abstract=False)
     graph.add_node("room", type="PatientRoom", zone="zone_1", is_abstract=False)
     graph.add_edge("corridor", "room", edge_type="door")
     return graph

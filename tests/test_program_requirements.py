@@ -126,7 +126,7 @@ def test_area_width_height_are_not_accepted() -> None:
 def test_invalid_adjacency_edge_type_fails() -> None:
     data = _requirements(
         adjacency=[
-            {"source": "PatientRoom", "target": "Corridor", "edgeType": "window", "priority": "required"}
+            {"source": "PatientRoom", "target": "OnStageCorridor", "edgeType": "window", "priority": "required"}
         ]
     )
 
@@ -139,7 +139,7 @@ def test_invalid_adjacency_edge_type_fails() -> None:
 def test_invalid_adjacency_priority_fails() -> None:
     data = _requirements(
         adjacency=[
-            {"source": "PatientRoom", "target": "Corridor", "edgeType": "door", "priority": "mandatory"}
+            {"source": "PatientRoom", "target": "OnStageCorridor", "edgeType": "door", "priority": "mandatory"}
         ]
     )
 
@@ -152,8 +152,8 @@ def test_invalid_adjacency_priority_fails() -> None:
 def test_conflicting_adjacency_preferences_fail() -> None:
     data = _requirements(
         adjacency=[
-            {"source": "PatientRoom", "target": "Corridor", "edgeType": "door", "priority": "required"},
-            {"source": "Corridor", "target": "PatientRoom", "edgeType": "door", "priority": "avoid"},
+            {"source": "PatientRoom", "target": "OnStageCorridor", "edgeType": "door", "priority": "required"},
+            {"source": "OnStageCorridor", "target": "PatientRoom", "edgeType": "door", "priority": "avoid"},
         ]
     )
 
@@ -176,7 +176,7 @@ def test_unknown_room_type_fails_against_config_vocabulary() -> None:
 def test_unknown_adjacency_room_type_fails_against_config_vocabulary() -> None:
     data = _requirements(
         adjacency=[
-            {"source": "Ballroom", "target": "Corridor", "edgeType": "door", "priority": "preferred"}
+            {"source": "Ballroom", "target": "OnStageCorridor", "edgeType": "door", "priority": "preferred"}
         ]
     )
 
@@ -267,7 +267,7 @@ def test_corridor_connection_hard_capacity_is_checked() -> None:
     data = _requirements(
         room_mix={
             "PatientRoom": {"min": 10, "target": 10, "max": 12},
-            "Corridor": {"min": 1, "target": 1, "max": 1},
+            "OnStageCorridor": {"min": 1, "target": 1, "max": 1},
         }
     )
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -9,19 +10,28 @@ from typing import Any
 FALLBACK_EXCLUDED_ROOM_TYPES = {"BuildingFloor", "Zone"}
 FALLBACK_CORRIDOR_TOKEN = "corridor"
 DEFAULT_ACCESSIBILITY_SOURCE = "PatientRoom"
-DEFAULT_ACCESSIBILITY_TARGET = "ClinicalSupport"
+DEFAULT_ACCESSIBILITY_TARGET = "NurseStation"
+DEFAULT_ACCESSIBILITY_SECONDARY_TARGET = "MedicationRoom"
 
 
-def is_corridor_node_type(node_type: Any) -> bool:
-    """Return whether a node type is corridor-like by the fallback token rule.
+def is_corridor_node_type(
+    node_type: Any,
+    corridor_types: "Collection[str] | None" = None,
+) -> bool:
+    """Return whether a node type is circulation.
 
-    This is the same token rule `_infer_corridor_types` uses when a config
-    defines no explicit corridor semantic group. Validators and metric
-    helpers that receive bare graphs (no config in scope) share this test so
-    `Corridor`, `OnStageCorridor`, and `OffStageCorridor` are treated
-    uniformly.
+    When the active config's declared corridor group is passed
+    (``corridor_types``), membership in that group is the source of truth.
+    Without group context — bare graphs in validators and metric helpers, or
+    configs that declare no corridor group — the fallback token rule applies
+    (the same rule `_infer_corridor_types` uses), so `Corridor`,
+    `OnStageCorridor`, and `OffStageCorridor` keep working uniformly.
     """
-    return isinstance(node_type, str) and FALLBACK_CORRIDOR_TOKEN in node_type.lower()
+    if not isinstance(node_type, str):
+        return False
+    if corridor_types is not None:
+        return node_type in corridor_types
+    return FALLBACK_CORRIDOR_TOKEN in node_type.lower()
 
 
 @dataclass(frozen=True)
@@ -137,19 +147,20 @@ def _infer_support_types(
 
 
 def _default_accessibility_pairs(allowed_node_types: list[str], allowed_edge_types: list[str]) -> list[dict[str, str]]:
-    if (
-        DEFAULT_ACCESSIBILITY_SOURCE in allowed_node_types
-        and DEFAULT_ACCESSIBILITY_TARGET in allowed_node_types
-        and "door" in allowed_edge_types
-    ):
-        return [
-            {
-                "source_type": DEFAULT_ACCESSIBILITY_SOURCE,
-                "target_type": DEFAULT_ACCESSIBILITY_TARGET,
-                "edge_type": "door",
-            }
-        ]
-    return []
+    if "door" not in allowed_edge_types or DEFAULT_ACCESSIBILITY_SOURCE not in allowed_node_types:
+        return []
+    return [
+        {
+            "source_type": DEFAULT_ACCESSIBILITY_SOURCE,
+            "target_type": target_type,
+            "edge_type": "door",
+        }
+        for target_type in (
+            DEFAULT_ACCESSIBILITY_TARGET,
+            DEFAULT_ACCESSIBILITY_SECONDARY_TARGET,
+        )
+        if target_type in allowed_node_types
+    ]
 
 
 def _typed_accessibility_pairs(config: dict[str, Any], allowed_node_types: list[str], allowed_edge_types: list[str]) -> list[dict[str, str]]:
