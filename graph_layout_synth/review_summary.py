@@ -10,8 +10,10 @@ from typing import Any
 
 import networkx as nx
 
+from graph_layout_synth.config_contract import is_corridor_node_type
 
-ROOM_LIKE_EXCLUDED_TYPES = {"BuildingFloor", "Corridor", "Zone"}
+
+ROOM_LIKE_EXCLUDED_TYPES = {"BuildingFloor", "Zone"}
 DEFAULT_TYPED_ACCESSIBILITY_PAIRS = (("PatientRoom", "ClinicalSupport"),)
 
 
@@ -45,6 +47,7 @@ def _room_like_nodes(graph: nx.Graph) -> list[str]:
         for node, attrs in graph.nodes(data=True)
         if not attrs.get("is_abstract", False)
         and attrs.get("type") not in ROOM_LIKE_EXCLUDED_TYPES
+        and not is_corridor_node_type(attrs.get("type"))
     ]
 
 

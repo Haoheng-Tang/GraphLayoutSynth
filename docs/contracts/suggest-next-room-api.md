@@ -105,7 +105,20 @@ shared static/env-config/active-variant logic as the suggestion sampler,
 re-evaluated per request, so the catalog and `/suggest-next-room` always
 reflect the same config: when a variant is activated mid-session, its
 vocabulary appears in the catalog and drives suggestions from the next
-request onward, with no restart. Use the canonical `id` values as
+request onward, with no restart.
+
+The default config exposes an expanded medium-detail healthcare vocabulary
+(~35 flat PascalCase types: `PatientRoom`, `OnStageCorridor`,
+`OffStageCorridor`, `NurseStation`, `MedicationRoom`, `CleanUtility`,
+`Stair`, `Elevator`, `MEPRoom`, and more), including the legacy `Corridor`,
+`ClinicalSupport`, and `StaffSupport` compatibility types. Room type IDs are
+never nested (`ClinicalSupport.CleanUtility` does not exist); category
+hierarchy lives in backend semantic groups. Not every catalog type appears
+in every generated graph: the default grammar generates an essential subset,
+so anchors typed with optional or legacy types may legitimately produce
+empty suggestions — handle them with the normal local-fallback path. The
+frontend should treat the catalog as read-only: adding or removing canonical
+room types is a backend config change. Use the canonical `id` values as
 `rooms[].type` in floorplan snapshots and map any user-entered names to them.
 Unknown labels are accepted by request validation, but the generated grammar
 never produces them, so they cannot be semantically matched or suggested. See

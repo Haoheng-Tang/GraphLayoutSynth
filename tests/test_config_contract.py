@@ -1,8 +1,10 @@
+from pathlib import Path
+
 import pytest
 import yaml
 
 from graph_layout_synth.config import DEFAULT_CONFIG_PATH, ConfigError, validate_config
-from graph_layout_synth.config_contract import build_config_contract
+from graph_layout_synth.config_contract import build_config_contract, reachable_room_count_ranges
 from graph_layout_synth.config_validator import validate_config_file
 from graph_layout_synth.grammar_variant_assistant import build_grammar_variant_prompt
 
@@ -168,7 +170,28 @@ def test_default_config_validation_report_includes_contract_summary():
     assert report.is_valid
     assert report.contract_summary["allowed_node_types"]
     assert report.contract_summary["allowed_edge_types"]
-    assert report.contract_summary["room_mix_reachable_ranges"]["ClinicalSupport"] == {"min": 9, "max": 15}
+    # The default config no longer declares room_mix_targets, so no room-mix
+    # reachable ranges are derived.
+    assert report.contract_summary["room_mix_targets"] == {}
+    assert report.contract_summary["room_mix_reachable_ranges"] == {}
+
+
+def test_default_config_reachable_ranges_are_zone_rule_aware():
+    """Per-zone counts multiply only the zones matching each Zone rule.
+
+    The default grammar expands two WardZone zones and one ServiceZone zone
+    through separate rules; PatientRoom counts must scale by the two ward
+    zones only, not by all three zones.
+    """
+    config = yaml.safe_load(Path(DEFAULT_CONFIG_PATH).read_text(encoding="utf-8"))
+
+    ranges = reachable_room_count_ranges(config)
+
+    assert ranges["PatientRoom"] == {"min": 20, "max": 24}
+    assert ranges["OnStageCorridor"] == {"min": 4, "max": 4}
+    assert ranges["NurseStation"] == {"min": 2, "max": 2}
+    assert ranges["OffStageCorridor"] == {"min": 1, "max": 1}
+    assert ranges["Elevator"] == {"min": 1, "max": 1}
 
 
 def test_room_mix_expected_count_outside_reachable_range_fails_validation(tmp_path):

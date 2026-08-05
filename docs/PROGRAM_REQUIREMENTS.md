@@ -99,20 +99,33 @@ schemaVersion: 1
 program:
   roomMix:
     PatientRoom:
-      min: 50
-      target: 56
-      max: 60
-    ClinicalSupport:
-      min: 6
-      target: 8
-      max: 10
+      min: 20
+      target: 22
+      max: 24
+    NurseStation:
+      min: 2
+      target: 2
+      max: 3
+    CleanUtility:
+      min: 1
+      target: 2
+      max: 3
+    Stair:
+      min: 2
+      target: 2
+      max: 2
 
 adjacencyPreferences:
   - source: PatientRoom
-    target: Corridor
+    target: OnStageCorridor
     edgeType: door
     priority: required
 ```
+
+Room types are canonical IDs from the room-type catalog below — the default
+config now exposes a medium-detail healthcare vocabulary (see
+`docs/ROOM_VOCABULARY.md` for the full list and for the distinction between
+the allowed vocabulary, the default generated mix, and optional room types).
 
 ## JSON example
 
@@ -166,6 +179,14 @@ optional inline `constraintProfile`. Response fields: `valid`, `feasibility`,
 `errors`, `warnings`, where each issue has `code`, `severity`, `message`, and
 optional `path`, `suggestion`, and `debugDetails`.
 
+Without an explicit `baseConfigPath`, the validation vocabulary comes from
+the same shared config-source resolution as the room-type catalog and the
+`/suggest-next-room` sampler (`GRAPHLAYOUTSYNTH_GRAMMAR_MODE`:
+static/env-config/active-variant, with the usual unset-mode fallback), so
+the catalog can never offer a room type this endpoint then rejects. An
+explicit `baseConfigPath` always wins. In active-variant mode a missing
+pointer fails explicitly with HTTP 400, matching the catalog.
+
 This endpoint never calls the LLM and never generates graphs, so it is safe
 for frontend preflight validation. It requires no feature flag.
 
@@ -182,15 +203,20 @@ names. IDs come from the live `ConfigContract` (the `room_like` and
 validation uses — so there is no second source of room-type truth. Abstract
 structural node types such as `BuildingFloor` and `Zone` are not included.
 
-Example response:
+Example response (abbreviated — the default config's expanded healthcare
+vocabulary returns 35 entries, including legacy `Corridor`,
+`ClinicalSupport`, and `StaffSupport` compatibility types):
 
 ```json
 {
   "roomTypes": [
-    {"id": "ClinicalSupport", "displayName": "Clinical support"},
-    {"id": "Corridor", "displayName": "Corridor"},
+    {"id": "CleanUtility", "displayName": "Clean utility"},
+    {"id": "Elevator", "displayName": "Elevator"},
+    {"id": "MEPRoom", "displayName": "MEP room"},
+    {"id": "NurseStation", "displayName": "Nurse station"},
+    {"id": "OnStageCorridor", "displayName": "On stage corridor"},
     {"id": "PatientRoom", "displayName": "Patient room"},
-    {"id": "StaffSupport", "displayName": "Staff support"}
+    {"id": "Stair", "displayName": "Stair"}
   ],
   "source": "default_config",
   "configPath": "configs/generic_building.yaml"

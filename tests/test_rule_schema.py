@@ -116,7 +116,10 @@ def test_generation_uses_config_defined_rules_without_final_zone_nodes():
         for _, attrs in result.graph.nodes(data=True)
     }
     assert "Zone" not in node_types
-    assert "Corridor" in node_types
+    assert "OnStageCorridor" in node_types
+    assert "OffStageCorridor" in node_types
+    assert "PatientRoom" in node_types
+    assert "NurseStation" in node_types
     assert any(attrs.get("edge_type") == "wall" for _, _, attrs in result.graph.edges(data=True))
     assert result.is_valid
 

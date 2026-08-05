@@ -335,6 +335,155 @@ def test_catalog_and_suggestions_resolve_same_active_config(
     assert loaded_paths == [Path(record["validatedConfigPath"])]
 
 
+def test_catalog_and_suggestions_resolve_same_source_in_static_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded_paths = _patch_generation(monkeypatch)
+    monkeypatch.setenv(GRAMMAR_MODE_ENV, GRAMMAR_MODE_STATIC)
+    client = TestClient(create_app())
+
+    catalog = client.get("/program-requirements/room-types")
+    suggestion = client.post("/suggest-next-room", json=_suggest_body())
+
+    assert catalog.status_code == 200
+    assert suggestion.status_code == 200
+    payload = catalog.json()
+    assert payload["source"] == "default_config"
+    assert payload["configPath"].endswith("generic_building.yaml")
+    # Static mode loads the default config (no explicit path argument).
+    assert loaded_paths == [None]
+
+
+def test_catalog_and_suggestions_resolve_same_source_in_env_config_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "env_config.yaml"
+    config_path.write_text(
+        BASE_CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    loaded_paths = _patch_generation(monkeypatch)
+    monkeypatch.setenv(GRAMMAR_MODE_ENV, "env_config")
+    monkeypatch.setenv(SUGGESTION_CONFIG_PATH_ENV, str(config_path))
+    client = TestClient(create_app())
+
+    catalog = client.get("/program-requirements/room-types")
+    suggestion = client.post("/suggest-next-room", json=_suggest_body())
+
+    assert catalog.status_code == 200
+    assert suggestion.status_code == 200
+    payload = catalog.json()
+    assert payload["source"] == "env_config"
+    assert Path(payload["configPath"]) == config_path
+    assert loaded_paths == [config_path]
+
+
+# --- Program-requirements validation source consistency -------------------------
+
+
+def _write_config_with_extra_room_type(path: Path, room_type: str) -> None:
+    """Write a valid config variant whose vocabulary adds one room type."""
+    import yaml
+
+    config = yaml.safe_load(BASE_CONFIG_PATH.read_text(encoding="utf-8"))
+    config["allowed_node_types"].append(room_type)
+    config["semantic_node_groups"]["room_like"].append(room_type)
+    path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+
+def _lounge_program_body() -> dict:
+    return {
+        "programRequirements": {
+            "schemaVersion": 1,
+            "program": {"roomMix": {"Lounge": {"min": 1, "target": 1, "max": 2}}},
+        }
+    }
+
+
+def test_program_validate_follows_active_variant_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The catalog must never offer a type that default validation rejects.
+
+    A variant adds a `Lounge` type that the base config does not know. With
+    the variant active, the catalog shows `Lounge` and validation accepts
+    it through the same shared config-source resolution.
+    """
+    variant_config = tmp_path / "lounge_variant.yaml"
+    _write_config_with_extra_room_type(variant_config, "Lounge")
+    variant_root = tmp_path / "llm-variants"
+    variant_root.mkdir()
+    (variant_root / "active_variant.json").write_text(
+        json.dumps(
+            {"variantId": "variant-lounge", "validatedConfigPath": str(variant_config)}
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(LLM_VARIANT_DIR_ENV, str(variant_root))
+    monkeypatch.setenv(GRAMMAR_MODE_ENV, GRAMMAR_MODE_ACTIVE_VARIANT)
+    client = TestClient(create_app())
+
+    catalog_ids = [
+        item["id"]
+        for item in client.get("/program-requirements/room-types").json()["roomTypes"]
+    ]
+    assert "Lounge" in catalog_ids
+
+    response = client.post("/program-requirements/validate", json=_lounge_program_body())
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is True
+    assert not any(
+        issue["code"] == "UNKNOWN_ROOM_TYPE" for issue in payload["errors"]
+    )
+
+
+def test_program_validate_uses_default_config_without_grammar_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = TestClient(create_app())
+
+    response = client.post("/program-requirements/validate", json=_lounge_program_body())
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is False
+    assert any(issue["code"] == "UNKNOWN_ROOM_TYPE" for issue in payload["errors"])
+
+
+def test_program_validate_explicit_base_config_overrides_grammar_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lounge_config = tmp_path / "lounge_config.yaml"
+    _write_config_with_extra_room_type(lounge_config, "Lounge")
+    monkeypatch.setenv(GRAMMAR_MODE_ENV, GRAMMAR_MODE_STATIC)
+    client = TestClient(create_app())
+
+    body = _lounge_program_body()
+    body["baseConfigPath"] = str(lounge_config)
+    response = client.post("/program-requirements/validate", json=body)
+
+    assert response.status_code == 200
+    assert response.json()["valid"] is True
+
+
+def test_program_validate_missing_active_pointer_fails_explicitly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(LLM_VARIANT_DIR_ENV, str(tmp_path / "empty"))
+    monkeypatch.setenv(GRAMMAR_MODE_ENV, GRAMMAR_MODE_ACTIVE_VARIANT)
+    client = TestClient(create_app())
+
+    response = client.post("/program-requirements/validate", json=_lounge_program_body())
+
+    assert response.status_code == 400
+    assert "no active grammar variant" in response.json()["detail"].lower()
+
+
 # --- Sampler unit behavior ------------------------------------------------------
 
 
