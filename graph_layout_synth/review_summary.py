@@ -14,7 +14,10 @@ from graph_layout_synth.config_contract import is_corridor_node_type
 
 
 ROOM_LIKE_EXCLUDED_TYPES = {"BuildingFloor", "Zone"}
-DEFAULT_TYPED_ACCESSIBILITY_PAIRS = (("PatientRoom", "ClinicalSupport"),)
+DEFAULT_TYPED_ACCESSIBILITY_PAIRS = (
+    ("PatientRoom", "NurseStation"),
+    ("PatientRoom", "MedicationRoom"),
+)
 
 
 def _sorted_counts(counter: Counter) -> dict[str, int]:
@@ -101,20 +104,55 @@ def wall_adjacency_summary(graph: nx.Graph) -> dict[str, Any]:
     }
 
 
-def support_type_summary(graph: nx.Graph) -> dict[str, Any]:
-    """Return support-room counts by concrete node type, without combining them."""
+def support_type_summary(
+    graph: nx.Graph,
+    support_groups: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
+    """Return support-room counts by concrete node type, without combining them.
+
+    ``support_groups`` maps distinct support category names (for example
+    `clinical_support`, `staff_support`) to the concrete node types the
+    active config assigns to each. Per-type counts stay separate, and each
+    category is additionally rolled up under its own group key — distinct
+    support categories are never collapsed into one generic bucket. Without
+    group context, the legacy "support" token fallback applies.
+    """
     room_like_nodes = _room_like_nodes(graph)
-    support_type_counts = Counter(
-        graph.nodes[node].get("type", "unknown")
-        for node in room_like_nodes
-        if "support" in str(graph.nodes[node].get("type", "")).lower()
-    )
     counted_room_count = len(room_like_nodes)
+    if support_groups:
+        grouped_types = {
+            node_type
+            for node_types in support_groups.values()
+            for node_type in node_types
+        }
+        support_type_counts = Counter(
+            graph.nodes[node].get("type", "unknown")
+            for node in room_like_nodes
+            if graph.nodes[node].get("type") in grouped_types
+        )
+        support_group_counts = {
+            group_name: sum(
+                support_type_counts.get(node_type, 0) for node_type in node_types
+            )
+            for group_name, node_types in sorted(support_groups.items())
+        }
+    else:
+        support_type_counts = Counter(
+            graph.nodes[node].get("type", "unknown")
+            for node in room_like_nodes
+            if "support" in str(graph.nodes[node].get("type", "")).lower()
+        )
+        support_group_counts = {}
     return {
         "support_type_counts": _sorted_counts(support_type_counts),
         "support_type_ratios": {
             node_type: round(count / counted_room_count, 4) if counted_room_count else 0.0
             for node_type, count in sorted(support_type_counts.items())
+        },
+        "support_group_counts": support_group_counts,
+        "support_group_ratios": {
+            group_name: round(count / counted_room_count, 4) if counted_room_count else 0.0
+            for group_name, count in support_group_counts.items()
         },
     }
 
@@ -274,6 +312,7 @@ def build_candidate_review_summary(
     ranking_entry: dict | None = None,
     artifact_paths: dict | None = None,
     typed_accessibility_pairs: list[tuple[str, str]] | None = None,
+    support_groups: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """Build a compact JSON-serializable summary for one candidate."""
     artifact_paths = artifact_paths or {}
@@ -286,7 +325,7 @@ def build_candidate_review_summary(
     )
     graph_degree_summary = degree_summary(graph)
     wall_summary = wall_adjacency_summary(graph)
-    support_summary = support_type_summary(graph)
+    support_summary = support_type_summary(graph, support_groups=support_groups)
     accessibility_summary = typed_accessibility_summary(graph, type_pairs=typed_accessibility_pairs)
 
     return {
@@ -325,6 +364,8 @@ def build_candidate_review_summary(
         "corridor_access_ratio": metrics.get("corridor_access_ratio"),
         "support_type_counts": support_summary["support_type_counts"],
         "support_type_ratios": support_summary["support_type_ratios"],
+        "support_group_counts": support_summary["support_group_counts"],
+        "support_group_ratios": support_summary["support_group_ratios"],
         "wall_adjacency_summary": wall_summary,
         "typed_accessibility_summary": accessibility_summary,
         "trace_metadata": _trace_metadata(candidate_report, ranking_entry),

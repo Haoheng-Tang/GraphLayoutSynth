@@ -87,8 +87,8 @@ def test_allowed_node_types_include_expanded_and_optional_vocabulary():
     allowed = set(config.allowed_node_types)
     assert ESSENTIAL_GENERATED_TYPES <= allowed
     assert OPTIONAL_ROOM_TYPES <= allowed
-    # Legacy compatibility types stay allowed.
-    assert {"Corridor", "ClinicalSupport", "StaffSupport"} <= allowed
+    # Legacy compatibility types are fully removed from the vocabulary.
+    assert not {"Corridor", "ClinicalSupport", "StaffSupport"} & allowed
     # Category names are semantic groups, never canonical graph node types.
     assert not {
         "Administration",
@@ -120,17 +120,16 @@ def test_semantic_groups_assign_new_types_to_expected_groups():
     ):
         assert expected_group in groups, expected_group
 
-    assert set(groups["corridor"]) == {"Corridor", "OnStageCorridor", "OffStageCorridor"}
+    assert set(groups["corridor"]) == {"OnStageCorridor", "OffStageCorridor"}
     assert groups["patient"] == ["PatientRoom"]
     assert {"Stair", "Elevator"} == set(groups["vertical_circulation"])
     assert "NurseStation" in groups["clinical_support"]
     assert "MEPRoom" in groups["building_service"]
     assert "StaffLounge" in groups["staff_support"]
     assert "VisitorLounge" in groups["public_amenity"]
-    # Legacy support types stay members of their legacy groups.
-    assert "ClinicalSupport" in groups["clinical_support"]
-    assert "StaffSupport" in groups["staff_support"]
-    assert {"ClinicalSupport", "StaffSupport"} <= set(groups["support"])
+    # Legacy support types are gone from every group.
+    all_group_members = {t for members in groups.values() for t in members}
+    assert not {"Corridor", "ClinicalSupport", "StaffSupport"} & all_group_members
     assert not contract.errors
 
 

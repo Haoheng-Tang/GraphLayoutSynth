@@ -141,7 +141,7 @@ JSON parses into the same model; see
     }
   },
   "adjacencyPreferences": [
-    { "source": "PatientRoom", "target": "Corridor", "edgeType": "door", "priority": "required" }
+    { "source": "PatientRoom", "target": "OnStageCorridor", "edgeType": "door", "priority": "required" }
   ]
 }
 ```
@@ -203,28 +203,34 @@ names. IDs come from the live `ConfigContract` (the `room_like` and
 validation uses — so there is no second source of room-type truth. Abstract
 structural node types such as `BuildingFloor` and `Zone` are not included.
 
-Example response (abbreviated — the default config's expanded healthcare
-vocabulary returns 35 entries, including legacy `Corridor`,
-`ClinicalSupport`, and `StaffSupport` compatibility types):
+Example response (abbreviated — the default config's healthcare vocabulary
+returns 32 entries, 16 of them `generated` by the default grammar):
 
 ```json
 {
   "roomTypes": [
-    {"id": "CleanUtility", "displayName": "Clean utility"},
-    {"id": "Elevator", "displayName": "Elevator"},
-    {"id": "MEPRoom", "displayName": "MEP room"},
-    {"id": "NurseStation", "displayName": "Nurse station"},
-    {"id": "OnStageCorridor", "displayName": "On stage corridor"},
-    {"id": "PatientRoom", "displayName": "Patient room"},
-    {"id": "Stair", "displayName": "Stair"}
+    {"id": "CleanUtility", "displayName": "Clean utility", "generated": true, "tier": "generated"},
+    {"id": "Elevator", "displayName": "Elevator", "generated": true, "tier": "generated"},
+    {"id": "Kitchen", "displayName": "Kitchen", "generated": false, "tier": "optional"},
+    {"id": "NurseStation", "displayName": "Nurse station", "generated": true, "tier": "generated"},
+    {"id": "OnStageCorridor", "displayName": "On stage corridor", "generated": true, "tier": "generated"},
+    {"id": "PatientRoom", "displayName": "Patient room", "generated": true, "tier": "generated"},
+    {"id": "TeamRoom", "displayName": "Team room", "generated": false, "tier": "optional"}
   ],
   "source": "default_config",
   "configPath": "configs/generic_building.yaml"
 }
 ```
 
+`generated`/`tier` report whether the active config's grammar actually
+creates each type (`grammar_created_node_types`), resolved through the same
+config source as `/suggest-next-room` — an activated variant that generates
+different types changes the flags together with the vocabulary. `optional`
+types are valid Program Requirements vocabulary but produce empty
+suggestions until a variant generates them.
+
 `roomTypes` is deterministic, de-duplicated, and sorted by `id`. `description`
-is reserved and currently omitted. `source` is one of `default_config`,
+is reserved and currently null. `source` is one of `default_config`,
 `env_config`, `active_variant`, or `request_config`.
 
 Config resolution follows the `/suggest-next-room` sampler: with

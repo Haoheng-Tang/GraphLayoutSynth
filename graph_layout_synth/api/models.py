@@ -209,11 +209,20 @@ class InstructionVariantProposeResponse(ApiModel):
 
 
 class ProgramRoomTypeCatalogItem(ApiModel):
-    """One canonical user-facing room type from the active config vocabulary."""
+    """One canonical user-facing room type from the active config vocabulary.
+
+    ``generated``/``tier`` tell the frontend which types the active grammar
+    actually creates: `generated` types can appear in `/suggest-next-room`
+    results; `optional` types are valid vocabulary (Program Requirements,
+    variant proposals) but produce no suggestions until a config variant
+    generates them. Both fields are additive; existing clients ignore them.
+    """
 
     id: str = Field(min_length=1)
     display_name: str | None = None
     description: str | None = None
+    generated: bool = False
+    tier: Literal["generated", "optional"] = "optional"
 
 
 class ProgramRoomTypeCatalogResponse(ApiModel):

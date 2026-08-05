@@ -12,8 +12,6 @@ from typing import Any
 ARCHIVE_VERSION = 1
 DEFAULT_NEAR_DUPLICATE_THRESHOLD = 0.05
 DEFAULT_LOW_NOVELTY_THRESHOLD = 0.10
-DEFAULT_ACCESS_SOURCE_TYPE = "PatientRoom"
-DEFAULT_ACCESS_TARGET_TYPE = "ClinicalSupport"
 
 
 def _number(value: Any) -> float:
@@ -44,12 +42,17 @@ def _add_flat_count_features(features: dict[str, float], prefix: str, values: An
         features[f"{prefix}.{key}"] = _number(value)
 
 
-def _typed_accessibility_pair(summary: dict[str, Any], source_type: str, target_type: str) -> dict[str, Any] | None:
+def _typed_accessibility_pairs(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return every typed-accessibility pair recorded in one review summary.
+
+    Pairs are config-derived when the summary was built (the review pipeline
+    passes the live contract's `typed_accessibility_pairs`), so diversity
+    features follow the active config's vocabulary instead of hardcoding
+    type names.
+    """
     access_summary = summary.get("typed_accessibility_summary", {})
-    for pair in access_summary.get("pairs", []):
-        if pair.get("source_type") == source_type and pair.get("target_type") == target_type:
-            return pair
-    return None
+    pairs = access_summary.get("pairs", [])
+    return [pair for pair in pairs if isinstance(pair, dict)]
 
 
 def extract_diversity_feature_vector(candidate_summary: dict) -> dict[str, float]:
@@ -92,13 +95,14 @@ def extract_diversity_feature_vector(candidate_summary: dict) -> dict[str, float
     _add_flat_count_features(features, "support_type_ratio", candidate_summary.get("support_type_ratios", {}))
     _add_flat_count_features(features, "rule_count", _nested_value(candidate_summary, "trace_metadata.applied_rule_counts") or {})
 
-    pair = _typed_accessibility_pair(
-        candidate_summary,
-        DEFAULT_ACCESS_SOURCE_TYPE,
-        DEFAULT_ACCESS_TARGET_TYPE,
-    )
-    access_prefix = f"typed_access.{DEFAULT_ACCESS_SOURCE_TYPE}_to_{DEFAULT_ACCESS_TARGET_TYPE}"
-    if pair:
+    _add_flat_count_features(features, "support_group_ratio", candidate_summary.get("support_group_ratios", {}))
+
+    for pair in _typed_accessibility_pairs(candidate_summary):
+        source_type = pair.get("source_type")
+        target_type = pair.get("target_type")
+        if not isinstance(source_type, str) or not isinstance(target_type, str):
+            continue
+        access_prefix = f"typed_access.{source_type}_to_{target_type}"
         for key in (
             "source_count",
             "target_count",
@@ -111,11 +115,6 @@ def extract_diversity_feature_vector(candidate_summary: dict) -> dict[str, float
         ):
             _add_numeric_feature(features, f"{access_prefix}.{key}", pair.get(key))
         _add_flat_count_features(features, f"{access_prefix}.distance_histogram", pair.get("distance_histogram", {}))
-    else:
-        _add_numeric_feature(features, f"{access_prefix}.source_count", 0.0)
-        _add_numeric_feature(features, f"{access_prefix}.target_count", 0.0)
-        _add_numeric_feature(features, f"{access_prefix}.reachable_count", 0.0)
-        _add_numeric_feature(features, f"{access_prefix}.unreachable_count", 0.0)
 
     return {key: float(value) for key, value in sorted(features.items())}
 
@@ -375,13 +374,17 @@ def compute_novelty_against_archive(
     }
 
 
+# Bin dimensions are skipped when absent from the extracted features, so
+# configs whose vocabulary or accessibility pairs differ simply use fewer
+# dimensions. Defaults track the default config's group names and
+# config-derived accessibility pairs.
 DEFAULT_BIN_CONFIG = {
-    "corridor_fraction": [0.2, 0.35],
-    "support_type_ratio.ClinicalSupport": [0.2, 0.4],
-    "support_type_ratio.StaffSupport": [0.1, 0.3],
+    "corridor_fraction": [0.1, 0.2],
+    "support_group_ratio.clinical_support": [0.2, 0.4],
+    "support_group_ratio.staff_support": [0.05, 0.15],
     "wall_adjacency.low_wall_adjacency_room_ratio": [0.25, 0.5],
     "edge_node_ratio": [1.0, 1.5],
-    "typed_access.PatientRoom_to_ClinicalSupport.distance_mean": [2.0, 3.0],
+    "typed_access.PatientRoom_to_NurseStation.distance_mean": [2.0, 3.0],
 }
 
 

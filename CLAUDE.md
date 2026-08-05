@@ -83,6 +83,6 @@ User-facing `ProgramRequirements` (room types with min/target/max counts plus ad
 - Tests must never make live Anthropic API calls — mock or isolate the API boundary. Use deterministic seeds in tests.
 - `tests/conftest.py` clears `ANTHROPIC_API_KEY` and every GraphLayoutSynth service env var before each test, because `load_llm_environment` writes real `.env.local` keys into `os.environ` at runtime. Keep new service env vars in that conftest list, and don't rely on ambient environment in tests.
 - Do not add heavy dependencies (geometry, OR-Tools, deep learning, web UI) unless explicitly requested. Core deps are NetworkX, PyYAML, Matplotlib, plus FastAPI/Pydantic/Uvicorn for the API.
-- Keep `ClinicalSupport` and `StaffSupport` as separate types in review summaries; do not collapse them.
+- Keep distinct support categories separate in review summaries: per-type support counts and the per-category rollups derived from the config's `clinical_support`/`staff_support` semantic groups must never be collapsed into one generic support bucket.
 - Wall-adjacency and accessibility metrics are graph-only proxies — never describe them as geometric or code-compliance metrics, and do not use them for scoring unless requested.
 - After changing config schema or contract-derived fields, run `validate-config` and the test suite.

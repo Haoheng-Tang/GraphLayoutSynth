@@ -112,9 +112,9 @@ def test_typed_accessibility_summary_uses_door_edges_by_default():
     graph = nx.Graph()
     graph.add_node("room_near", type="PatientRoom", is_abstract=False)
     graph.add_node("room_far", type="PatientRoom", is_abstract=False)
-    graph.add_node("clinical", type="ClinicalSupport", is_abstract=False)
-    graph.add_node("corridor_a", type="Corridor", is_abstract=False)
-    graph.add_node("corridor_b", type="Corridor", is_abstract=False)
+    graph.add_node("clinical", type="NurseStation", is_abstract=False)
+    graph.add_node("corridor_a", type="OnStageCorridor", is_abstract=False)
+    graph.add_node("corridor_b", type="OnStageCorridor", is_abstract=False)
     graph.add_edge("room_near", "clinical", edge_type="wall")
     graph.add_edge("room_near", "corridor_a", edge_type="door")
     graph.add_edge("clinical", "corridor_a", edge_type="door")
@@ -126,7 +126,7 @@ def test_typed_accessibility_summary_uses_door_edges_by_default():
 
     assert summary["edge_type"] == "door"
     assert pair["source_type"] == "PatientRoom"
-    assert pair["target_type"] == "ClinicalSupport"
+    assert pair["target_type"] == "NurseStation"
     assert pair["source_count"] == 2
     assert pair["target_count"] == 1
     assert pair["reachable_count"] == 2
@@ -169,8 +169,8 @@ def test_typed_accessibility_summary_counts_unreachable_sources():
     graph = nx.Graph()
     graph.add_node("room_a", type="PatientRoom", is_abstract=False)
     graph.add_node("room_b", type="PatientRoom", is_abstract=False)
-    graph.add_node("clinical", type="ClinicalSupport", is_abstract=False)
-    graph.add_node("corridor", type="Corridor", is_abstract=False)
+    graph.add_node("clinical", type="NurseStation", is_abstract=False)
+    graph.add_node("corridor", type="OnStageCorridor", is_abstract=False)
     graph.add_edge("room_a", "corridor", edge_type="door")
     graph.add_edge("clinical", "corridor", edge_type="door")
 

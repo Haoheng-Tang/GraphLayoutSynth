@@ -81,15 +81,14 @@ def test_default_catalog_returns_sorted_unique_room_types() -> None:
         "TelecomRoom",
         "UtilityRoom",
         "Kitchen",
-        # Legacy compatibility types remain in the catalog.
-        "Corridor",
-        "ClinicalSupport",
-        "StaffSupport",
     }
     assert set(ids) == expected_present
-    # Abstract structural types never appear.
+    # Abstract structural types never appear, and legacy types are gone.
     assert "BuildingFloor" not in ids
     assert "Zone" not in ids
+    assert "Corridor" not in ids
+    assert "ClinicalSupport" not in ids
+    assert "StaffSupport" not in ids
     assert all(item["id"] for item in room_types)
     assert len(ids) == len(set(ids))
     assert ids == sorted(ids)
@@ -111,8 +110,6 @@ def test_catalog_display_names_are_humanized() -> None:
     assert display_names["MEPRoom"] == "MEP room"
     assert display_names["PPEStorage"] == "PPE storage"
     assert display_names["Stair"] == "Stair"
-    assert display_names["ClinicalSupport"] == "Clinical support"
-    assert display_names["Corridor"] == "Corridor"
 
 
 def test_display_name_helper_handles_acronyms() -> None:

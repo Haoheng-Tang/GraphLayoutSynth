@@ -246,6 +246,18 @@ def run_generate(args: argparse.Namespace) -> dict[str, Any]:
     config = load_config(args.config)
     contract = build_config_contract(_read_yaml_mapping(args.config))
     typed_accessibility_pairs = contract.typed_accessibility_type_pairs(edge_type="door") or None
+    # Distinct support categories for review summaries, kept separate per
+    # group; fall back to the whole `support` group when the config declares
+    # no finer-grained categories.
+    support_groups = {
+        group_name: node_types
+        for group_name, node_types in contract.semantic_node_groups.items()
+        if group_name in ("clinical_support", "staff_support") and node_types
+    } or (
+        {"support": contract.support_node_types}
+        if contract.support_node_types
+        else None
+    )
     num_candidates = args.num_candidates or config.generation.num_candidates
     seed = args.seed if args.seed is not None else config.random_seed_default
     visualization_warnings: list[str] = []
@@ -284,7 +296,12 @@ def run_generate(args: argparse.Namespace) -> dict[str, Any]:
         }
         for index, result in enumerate(results, start=1)
     ]
-    ranked = rank_candidates(candidate_records, weights=config.ranking)
+    ranked = rank_candidates(
+        candidate_records,
+        weights=config.ranking,
+        corridor_types=set(config.corridor_node_types) or None,
+        support_types=set(config.support_node_types) or None,
+    )
     ranked_by_id = {item["candidate_id"]: item for item in ranked}
     candidate_summaries = []
     for index, result in enumerate(results, start=1):
@@ -332,6 +349,7 @@ def run_generate(args: argparse.Namespace) -> dict[str, Any]:
             ranking_entry=ranking_entry,
             artifact_paths=artifacts,
             typed_accessibility_pairs=typed_accessibility_pairs,
+            support_groups=support_groups,
         )
         export_review_summary_json(candidate_summary, artifacts["review_summary_path"])
         candidate_summaries.append(candidate_summary)

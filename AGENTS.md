@@ -245,9 +245,9 @@ Typical generated files:
 - Do not change generation, ranking, visualization, LLM evaluation, config behavior, or tests on documentation-only branches unless an obvious docs-related fix requires it.
 - Do not claim generated graphs are code-compliant or life-safety certified layouts.
 - Do not describe wall-adjacency summary fields as literal geometric corner-room or code-compliance metrics; they are graph-only proxies.
-- Keep `ClinicalSupport` and `StaffSupport` separate in review summaries. Do not collapse them into a generic support-room field for RAG review.
+- Keep distinct support categories separate in review summaries. Support counts derive from the config's `clinical_support`/`staff_support` semantic groups (per-type counts plus per-category rollups); do not collapse them into a generic support-room field for RAG review.
 - Wall-adjacency node references should include `node_id`, `node_type`, `wall_degree`, and available attributes such as `zone`.
-- Typed accessibility currently uses door-edge-only travel by default and includes `PatientRoom` to nearest `ClinicalSupport` as the default pair when present. Do not use it for scoring unless explicitly requested.
+- Typed accessibility currently uses door-edge-only travel by default; pairs come from the config's `typed_accessibility_pairs`, with `PatientRoom` to nearest `NurseStation`/`MedicationRoom` as the fallback pairs when the config declares none. Do not use it for scoring unless explicitly requested.
 - Do not use diversity or novelty metrics to change final ranking/selection in this branch. They are exported diagnostics only.
 - Do not auto-archive generated, best, or top-k candidates. Archive entries represent accepted final outputs only.
 - Prefer the selection-file workflow for archiving. Direct `--review-summary` archiving is secondary for manual/test workflows.
