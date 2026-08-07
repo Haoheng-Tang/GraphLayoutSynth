@@ -15,7 +15,7 @@ Deterministic validation and ranking are the source of truth. Optional Claude ev
 - Config: YAML, default `configs/generic_building.yaml`
 - Config-contract layer: `ConfigContract` derived from the active YAML config.
 - Optional FastAPI integration: `GET /health`, `POST /suggest-next-room`, `GET /program-requirements/room-types`, `POST /program-requirements/validate`, and feature-gated grammar-variant control-plane endpoints.
-- `GET /program-requirements/room-types` is a read-only catalog of canonical user-facing room types derived from the live `ConfigContract` (`room_like` + `corridor` semantic groups) of the active config, following the same static/env-config/active-variant resolution as the suggestion sampler. It needs no feature flag.
+- `GET /program-requirements/room-types` is a read-only catalog of canonical user-facing room types derived from the live `ConfigContract` (`room_like` + `corridor` semantic groups) of the active config, following the same static/env-config/active-variant resolution as the suggestion sampler. It needs no feature flag. Each entry carries `generated`/`tier` (does the active grammar create this type) and `groups` (every `semantic_node_groups` membership, verbatim and sorted). `groups` is the declared source of role-based frontend behavior; expose raw group names and do not add computed role flags such as `isCirculation`.
 - CLI commands:
   - `python -m graph_layout_synth generate`
   - `python -m graph_layout_synth validate-config`

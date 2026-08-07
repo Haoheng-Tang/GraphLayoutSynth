@@ -209,13 +209,13 @@ returns 32 entries, 16 of them `generated` by the default grammar):
 ```json
 {
   "roomTypes": [
-    {"id": "CleanUtility", "displayName": "Clean utility", "generated": true, "tier": "generated"},
-    {"id": "Elevator", "displayName": "Elevator", "generated": true, "tier": "generated"},
-    {"id": "Kitchen", "displayName": "Kitchen", "generated": false, "tier": "optional"},
-    {"id": "NurseStation", "displayName": "Nurse station", "generated": true, "tier": "generated"},
-    {"id": "OnStageCorridor", "displayName": "On stage corridor", "generated": true, "tier": "generated"},
-    {"id": "PatientRoom", "displayName": "Patient room", "generated": true, "tier": "generated"},
-    {"id": "TeamRoom", "displayName": "Team room", "generated": false, "tier": "optional"}
+    {"id": "CleanUtility", "displayName": "Clean utility", "generated": true, "tier": "generated", "groups": ["clinical_support", "room_like", "support"]},
+    {"id": "Elevator", "displayName": "Elevator", "generated": true, "tier": "generated", "groups": ["room_like", "vertical_circulation"]},
+    {"id": "Kitchen", "displayName": "Kitchen", "generated": false, "tier": "optional", "groups": ["building_service", "room_like"]},
+    {"id": "NurseStation", "displayName": "Nurse station", "generated": true, "tier": "generated", "groups": ["clinical_support", "room_like", "support"]},
+    {"id": "OnStageCorridor", "displayName": "On stage corridor", "generated": true, "tier": "generated", "groups": ["corridor"]},
+    {"id": "PatientRoom", "displayName": "Patient room", "generated": true, "tier": "generated", "groups": ["patient", "patient_care", "room_like"]},
+    {"id": "TeamRoom", "displayName": "Team room", "generated": false, "tier": "optional", "groups": ["administration", "room_like"]}
   ],
   "source": "default_config",
   "configPath": "configs/generic_building.yaml"
@@ -228,6 +228,13 @@ config source as `/suggest-next-room` — an activated variant that generates
 different types changes the flags together with the vocabulary. `optional`
 types are valid Program Requirements vocabulary but produce empty
 suggestions until a variant generates them.
+
+`groups` lists every `semantic_node_groups` membership for the type, sorted
+and de-duplicated, so clients can resolve semantic role (circulation,
+clinical support, staff support) from declared data instead of matching
+substrings in the ID. Group names are config-defined rather than a fixed
+enum — a variant may declare its own — so treat unknown names as opaque. A
+type in no group returns `[]`, never `null`.
 
 `roomTypes` is deterministic, de-duplicated, and sorted by `id`. `description`
 is reserved and currently null. `source` is one of `default_config`,
