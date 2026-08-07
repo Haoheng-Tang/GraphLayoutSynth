@@ -215,7 +215,16 @@ class ProgramRoomTypeCatalogItem(ApiModel):
     actually creates: `generated` types can appear in `/suggest-next-room`
     results; `optional` types are valid vocabulary (Program Requirements,
     variant proposals) but produce no suggestions until a config variant
-    generates them. Both fields are additive; existing clients ignore them.
+    generates them.
+
+    ``groups`` lists every semantic group the active config assigns this type
+    to, verbatim and sorted (for example `["corridor", "room_like"]`). Group
+    names are config-defined rather than a fixed enum, so clients must treat
+    unknown names as opaque. This is the declared source for role-based
+    frontend behavior such as corridor auto-extension and default room depth;
+    matching substrings in the type ID is not.
+
+    All three fields are additive; existing clients ignore them.
     """
 
     id: str = Field(min_length=1)
@@ -223,6 +232,7 @@ class ProgramRoomTypeCatalogItem(ApiModel):
     description: str | None = None
     generated: bool = False
     tier: Literal["generated", "optional"] = "optional"
+    groups: list[str] = Field(default_factory=list)
 
 
 class ProgramRoomTypeCatalogResponse(ApiModel):

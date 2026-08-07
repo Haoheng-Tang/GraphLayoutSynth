@@ -74,6 +74,25 @@ def resolve_catalog_config_path() -> tuple[str, Path]:
     return _CATALOG_SOURCE_LABELS[source.mode], source.config_path
 
 
+def _groups_by_room_type(
+    semantic_node_groups: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    """Invert semantic groups into a per-node-type list of group names.
+
+    Group names are returned verbatim (no computed role flags) and sorted, so
+    the response is deterministic and the frontend can add role consumers
+    without a backend change. A type in no group maps to an empty list.
+    """
+    groups_by_room_type: dict[str, set[str]] = {}
+    for group_name, node_types in semantic_node_groups.items():
+        for node_type in node_types:
+            groups_by_room_type.setdefault(node_type, set()).add(group_name)
+    return {
+        node_type: sorted(group_names)
+        for node_type, group_names in groups_by_room_type.items()
+    }
+
+
 def display_name_for_room_type(room_type: str) -> str:
     """Humanize a CamelCase room type ID, e.g. ``PatientRoom`` -> ``Patient room``."""
     words = _CAMEL_BOUNDARY.sub(" ", room_type).split()
@@ -94,9 +113,10 @@ def build_room_type_catalog(
     """Build the deterministic catalog from one raw config mapping.
 
     ``generated``/``tier`` come from the same config's grammar rules
-    (`grammar_created_node_types`), so an activated variant that generates
-    different types changes the tier flags together with the vocabulary —
-    the catalog and the suggestion sampler can never disagree.
+    (`grammar_created_node_types`), and ``groups`` from the same config's
+    `semantic_node_groups`, so an activated variant that generates different
+    types or declares different roles changes the flags together with the
+    vocabulary — the catalog and the suggestion sampler can never disagree.
     """
     contract = build_config_contract(raw_config)
     if contract.errors:
@@ -108,6 +128,7 @@ def build_room_type_catalog(
         set(contract.room_like_node_types) | set(contract.corridor_node_types)
     )
     generated_types = set(grammar_created_node_types(raw_config))
+    groups_by_room_type = _groups_by_room_type(contract.semantic_node_groups)
     return ProgramRoomTypeCatalogResponse(
         room_types=[
             ProgramRoomTypeCatalogItem(
@@ -115,6 +136,7 @@ def build_room_type_catalog(
                 display_name=display_name_for_room_type(room_type),
                 generated=room_type in generated_types,
                 tier="generated" if room_type in generated_types else "optional",
+                groups=groups_by_room_type.get(room_type, []),
             )
             for room_type in room_types
         ],

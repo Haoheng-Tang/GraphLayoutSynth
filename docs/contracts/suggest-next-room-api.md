@@ -115,7 +115,8 @@ Each entry has this shape:
   "displayName": "Clean utility",
   "description": null,
   "generated": true,
-  "tier": "generated"
+  "tier": "generated",
+  "groups": ["clinical_support", "room_like", "support"]
 }
 ```
 
@@ -127,11 +128,28 @@ Each entry has this shape:
   variants can generate them — but with the current active config they
   produce guaranteed-empty suggestions. Use this to badge or de-emphasize
   dropdown entries that cannot yield suggestions yet.
+* `groups`: every semantic group the active config assigns this room type
+  to, sorted and de-duplicated. This is the declared source for role-based
+  frontend behavior such as corridor auto-extension and default room depth.
 
-Both fields are derived from the same config source as the sampler, so
-activating a variant that generates different types updates the tier flags
-together with the vocabulary. They are additive: clients that only read
-`id`/`displayName` keep working.
+Group names are **config-defined, not a fixed enum**. The default config
+uses `corridor`, `room_like`, `patient`, `patient_care`, `clinical_support`,
+`staff_support`, `patient_support`, `public_amenity`, `administration`,
+`vertical_circulation`, `building_service`, and `support`, but a variant may
+declare others. Treat unrecognized group names as opaque and ignore them
+rather than failing.
+
+Resolve roles from `groups`, never from substrings in the `id`. Substring
+matching happens to work for `OnStageCorridor`/`OffStageCorridor` but is
+wrong for `NurseStation` (a support room, not a full-depth room) and breaks
+entirely for a variant that names its circulation `Spine`, `Racetrack`, or
+`Hallway` — those still report `"groups": ["corridor"]`. A type may belong
+to several groups; a type in none returns `[]`, never `null`.
+
+All three fields are derived from the same config source as the sampler, so
+activating a variant that generates different types or declares different
+roles updates them together with the vocabulary. They are additive: clients
+that only read `id`/`displayName` keep working.
 
 The default config exposes a medium-detail healthcare vocabulary (32 flat
 PascalCase types: `PatientRoom`, `OnStageCorridor`, `OffStageCorridor`,

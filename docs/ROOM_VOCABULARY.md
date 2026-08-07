@@ -119,6 +119,22 @@ catalog is derived from `room_like` ∪ `corridor`; validators, preflight
 corridor checks, and prompt context consume groups through the
 ConfigContract.
 
+**Semantic groups are the declared source of role-based behavior in both
+repos.** Backend-side, group membership decides circulation
+(`is_corridor_node_type`), review-summary support categories, and ranking's
+support metric. Frontend-side, each room type's groups are published on the
+room-type catalog as `groups`, and NextRoomPredictor resolves role-driven
+behavior — corridor auto-extension, default room depth — from that field.
+
+Neither side may infer role from spelling. Matching a substring in the type
+ID happens to work for `OnStageCorridor`/`OffStageCorridor`, but it
+misclassifies `NurseStation` (a support room) and fails completely for a
+variant that names its circulation `Spine`, `Racetrack`, or `Hallway`. Those
+names carry no "corridor" token yet still report `"groups": ["corridor"]`,
+which is precisely why the field exists. To give a type a new role, add it
+to a group in the config; do not rename the type and do not add a computed
+role flag to the API.
+
 ## Example Program Requirements with new types
 
 ```json
