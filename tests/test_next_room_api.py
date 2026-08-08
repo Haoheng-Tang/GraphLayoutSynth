@@ -177,6 +177,10 @@ def test_valid_request_returns_ranked_camel_case_suggestions() -> None:
         ],
         "sampleCount": 3,
         "predictorVersion": "graphlayoutsynth-v1",
+        # All three fake samples match the anchor and contribute candidates.
+        # `configSource` is absent: the mocked sampler resolves no config.
+        "matchedSampleCount": 3,
+        "samplesWithCandidates": 3,
     }
 
 
@@ -354,6 +358,9 @@ def test_empty_generator_result_returns_empty_suggestions_and_actual_count() -> 
         "suggestions": [],
         "sampleCount": 0,
         "predictorVersion": "graphlayoutsynth-v1",
+        # Short generation: nothing was generated, so nothing matched.
+        "matchedSampleCount": 0,
+        "samplesWithCandidates": 0,
     }
 
 

@@ -249,10 +249,19 @@ export type NextRoomTypeSuggestion = {
   intendedEdges?: SuggestedIntendedEdge[] | null;
 };
 
+export type SuggestionConfigSource = {
+  mode: "static" | "env_config" | "active_variant";
+  configPath?: string;
+  variantId?: string | null;
+};
+
 export type SuggestNextRoomResponse = {
   suggestions: NextRoomTypeSuggestion[];
   sampleCount: number;
   predictorVersion: string;
+  matchedSampleCount?: number;
+  samplesWithCandidates?: number;
+  configSource?: SuggestionConfigSource;
 };
 ```
 
@@ -593,6 +602,9 @@ The backend owns semantic/topological prediction:
 * `intendedEdges[].edgeTypeCounts`, `intendedEdges[].confidence`, `intendedEdges[].sampleCount`: per-sample support evidence, following the same graph-sample counting boundary as the parent suggestion; `confidence` divides the intended edge's sample support by the top-level sample count.
 * `sampleCount`: number of graph samples actually returned. It may be lower than the requested count.
 * `predictorVersion`: diagnostic backend predictor/version label.
+* `matchedSampleCount`: number of generated graph samples that contained at least one semantic anchor match. Always `<= sampleCount`.
+* `samplesWithCandidates`: number of generated graph samples that contributed at least one candidate room type after multiset subtraction. Always `<= matchedSampleCount`.
+* `configSource`: which config the sampler actually used — `mode` is `static`, `env_config`, or `active_variant`; `configPath` is the resolved config file; `variantId` is present only in active-variant mode.
 
 Suggestions are ordered by descending `sampleShare`, with alphabetical
 room-type ordering for ties. When `door` and `wall` support tie for one room
@@ -610,11 +622,53 @@ An empty result is successful:
 {
   "suggestions": [],
   "sampleCount": 50,
-  "predictorVersion": "graphlayoutsynth-v1"
+  "predictorVersion": "graphlayoutsynth-v1",
+  "matchedSampleCount": 0,
+  "samplesWithCandidates": 0,
+  "configSource": {
+    "mode": "static",
+    "configPath": "configs/generic_building.yaml"
+  }
 }
 ```
 
 Use local fallback suggestions when the returned list is empty.
+
+### Diagnosing an empty result
+
+`suggestions: []` has three materially different causes, distinguishable
+from the response alone:
+
+| Signature | Meaning |
+| --- | --- |
+| `matchedSampleCount == 0` | No generated graph contained a semantic anchor match. The anchor's room type isn't produced by the active grammar, or its one-hop neighbour signature can't be covered. |
+| `matchedSampleCount > 0` and `samplesWithCandidates == 0` | Matches were found, but no matching node had extra relations left after subtraction — the grammar considers this anchor saturated. |
+| `sampleCount` below the requested count | Generation returned fewer graphs than requested. |
+
+The frontend behavior is the same in all three cases — fall back to local
+suggestions. These fields exist so a human or a variant-authoring tool can
+tell "the grammar doesn't speak this vocabulary" from "the grammar thinks
+you're done" without an out-of-band debug run.
+
+Treat all three as **diagnostics, not application logic**, in the same
+spirit as `reason`: log them, surface them in developer tooling, and use
+them when reporting a problem, but do not branch product behavior on them.
+Their exact values depend on the active grammar and will change as grammars
+evolve.
+
+`configSource` is the supported way to confirm which grammar produced a
+suggestion. It replaces the previous need to enable a debug artifact run and
+read `aggregation_report.json` off disk. When suggestions look wrong for the
+vocabulary you expect, check `configSource.mode` and `configSource.variantId`
+first — an activated variant from an earlier session is the usual cause, and
+`GRAPHLAYOUTSYNTH_GRAMMAR_MODE=active_variant` in a stale `.env.local` will
+keep serving that variant's vocabulary until it is changed.
+
+All three fields are additive and populated on every response, including
+empty ones. Existing clients that read only `suggestions`/`sampleCount`/
+`predictorVersion` keep working. Note that `variantId` is omitted rather than
+`null` outside active-variant mode, following the same absent-vs-null
+convention as the other optional fields above.
 
 ## Semantic anchor matching
 
@@ -746,10 +800,11 @@ gets a separate timestamp-and-random-ID directory containing:
   frontend-neighbor target mapping, and per-match intended-edge evidence
   (known-neighbor correspondents, candidate nodes, detected secondary edges)
 * `aggregation_report.json`: match totals, per-room support counts, the
-  exact suggestions returned, and a `configSource` block
-  (`mode`/`configPath`/`variantId`) recording which config the sampler
-  actually used — the way to confirm an activated variant is really driving
-  suggestions
+  exact suggestions returned, and the same `matchedSampleCount`,
+  `samplesWithCandidates`, and `configSource` values the response carries
+  (taken from the response, so the artifact and the wire never disagree),
+  plus artifact-only detail such as `totalMatchingNodes`. Enabling artifacts
+  is no longer required to see the three response-level diagnostics.
 * `README.md`: concise human-readable run summary
 
 Optional PNG rendering is enabled by `includeDebugVisualizations: true` or:

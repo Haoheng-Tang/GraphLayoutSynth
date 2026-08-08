@@ -332,16 +332,12 @@ class SuggestionArtifactWriter:
                 "frontendAnchorSignature"
             ],
             "generatedSampleCount": response.sample_count,
-            "samplesWithMatches": sum(
-                graph_report["matchingNodeCount"] > 0
-                for graph_report in graph_reports
-            ),
+            # Taken from the response rather than recounted here, so the
+            # artifact on disk and the wire can never disagree.
+            "matchedSampleCount": response.matched_sample_count,
+            "samplesWithCandidates": response.samples_with_candidates,
             "totalMatchingNodes": sum(
                 graph_report["matchingNodeCount"]
-                for graph_report in graph_reports
-            ),
-            "samplesWithCandidates": sum(
-                graph_report["producedCandidates"]
                 for graph_report in graph_reports
             ),
             "candidateCountsByRoomType": {
@@ -432,7 +428,7 @@ class SuggestionArtifactWriter:
             ),
             (
                 "- Graphs with matching nodes: "
-                f"{aggregation_report['samplesWithMatches']}"
+                f"{aggregation_report['matchedSampleCount']}"
             ),
             (
                 "- Total matching nodes: "

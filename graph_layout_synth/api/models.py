@@ -127,12 +127,37 @@ class NextRoomTypeSuggestion(ApiModel):
     intended_edges: list[SuggestedIntendedEdge] | None = None
 
 
+class SuggestionConfigSourceInfo(ApiModel):
+    """Which config the sampler actually used for one suggestion request.
+
+    Reported so callers can confirm which grammar produced a suggestion
+    without enabling a debug artifact run. `variantId` is set only in
+    active-variant mode.
+    """
+
+    mode: str
+    config_path: str | None = None
+    variant_id: str | None = None
+
+
 class SuggestNextRoomResponse(ApiModel):
-    """Ranked next-room suggestions returned to NextRoomPredictor."""
+    """Ranked next-room suggestions returned to NextRoomPredictor.
+
+    `matchedSampleCount`, `samplesWithCandidates`, and `configSource` are
+    additive diagnostics populated on every response, including empty ones —
+    that is the case they exist for. They separate "no generated graph
+    contained a semantic anchor match" (`matchedSampleCount == 0`) from "the
+    grammar considers this anchor saturated" (`matchedSampleCount > 0` with
+    `samplesWithCandidates == 0`), and name the config behind the result.
+    Diagnostics only: do not drive application logic from them.
+    """
 
     suggestions: list[NextRoomTypeSuggestion]
     sample_count: int = Field(ge=0)
     predictor_version: str
+    matched_sample_count: int = Field(default=0, ge=0)
+    samples_with_candidates: int = Field(default=0, ge=0)
+    config_source: SuggestionConfigSourceInfo | None = None
 
 
 class GrammarVariantProposeRequest(ApiModel):

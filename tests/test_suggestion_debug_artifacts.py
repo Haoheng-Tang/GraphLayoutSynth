@@ -193,9 +193,9 @@ def test_request_flag_saves_complete_debug_artifacts(
             }
         ],
         "generatedSampleCount": 1,
-        "samplesWithMatches": 1,
-        "totalMatchingNodes": 1,
+        "matchedSampleCount": 1,
         "samplesWithCandidates": 1,
+        "totalMatchingNodes": 1,
         "candidateCountsByRoomType": {"StaffSupport": 1},
         "finalSuggestions": [
             {

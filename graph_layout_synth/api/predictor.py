@@ -11,10 +11,15 @@ from graph_layout_synth.api.matching_node_neighbor_aggregation import (
     build_suggestions_from_counts,
 )
 from graph_layout_synth.api.models import (
+    SuggestionConfigSourceInfo,
     SuggestNextRoomRequest,
     SuggestNextRoomResponse,
 )
-from graph_layout_synth.api.sampling import ExistingGeneratorSampler, GraphSampler
+from graph_layout_synth.api.sampling import (
+    ExistingGeneratorSampler,
+    GraphSampler,
+    SuggestionConfigSource,
+)
 from graph_layout_synth.api.semantic_anchor_matching import extract_anchor_room_type
 from graph_layout_synth.api.suggestion_debug_artifacts import (
     SuggestionArtifactWriter,
@@ -23,6 +28,27 @@ from graph_layout_synth.api.suggestion_debug_artifacts import (
 
 LOGGER = logging.getLogger(__name__)
 PREDICTOR_VERSION = "graphlayoutsynth-v1"
+
+
+def _config_source_info(
+    config_source: SuggestionConfigSource | None,
+) -> SuggestionConfigSourceInfo | None:
+    """Convert the sampler's resolved config source into its API shape.
+
+    Mocked samplers in tests expose no config source, so this stays optional
+    rather than inventing one; there is no second resolution path.
+    """
+    if config_source is None:
+        return None
+    return SuggestionConfigSourceInfo(
+        mode=config_source.mode,
+        config_path=(
+            str(config_source.config_path)
+            if config_source.config_path is not None
+            else None
+        ),
+        variant_id=config_source.variant_id,
+    )
 
 
 @dataclass
@@ -74,6 +100,9 @@ class NextRoomPredictor:
             suggestions=suggestions,
             sample_count=actual_sample_count,
             predictor_version=self.predictor_version,
+            matched_sample_count=candidate_evidence.matched_sample_count,
+            samples_with_candidates=candidate_evidence.samples_with_candidates,
+            config_source=_config_source_info(config_source),
         )
         try:
             artifact_directory = self.artifact_writer.save_if_enabled(
