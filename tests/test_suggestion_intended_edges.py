@@ -172,7 +172,14 @@ def test_endpoint_returns_intended_edge_with_anchor_edge_type_preserved() -> Non
 def test_endpoint_backward_compatible_fields_and_null_intended_edges() -> None:
     payload = _suggest([_generated_graph(None)], sample_count=1)
 
-    assert set(payload) == {"suggestions", "sampleCount", "predictorVersion"}
+    assert set(payload) == {
+        "suggestions",
+        "sampleCount",
+        "predictorVersion",
+        # Additive diagnostics; `configSource` is absent for a mocked sampler.
+        "matchedSampleCount",
+        "samplesWithCandidates",
+    }
     suggestion = payload["suggestions"][0]
     for existing_field in (
         "roomType",

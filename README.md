@@ -106,6 +106,16 @@ hard-coded — and the field is omitted when there is no evidence, so existing
 clients keep working unchanged. See
 [the API contract](docs/contracts/suggest-next-room-api.md) for field details.
 
+Every response also carries three additive diagnostics: `matchedSampleCount`
+(samples containing a semantic anchor match), `samplesWithCandidates`
+(samples contributing a candidate room type), and `configSource`
+(`mode`/`configPath`/`variantId` for the config the sampler used). They tell
+an empty result caused by "no semantic match" (`matchedSampleCount == 0`)
+apart from "the grammar considers this anchor saturated"
+(`matchedSampleCount > 0`, `samplesWithCandidates == 0`), and confirm which
+grammar produced a suggestion without enabling debug artifacts. They are
+diagnostics, not application logic.
+
 The default allowed browser origin is `http://localhost:5173`. Add comma-separated local origins with `NEXT_ROOM_ALLOWED_ORIGINS`.
 
 The suggestion endpoint uses `configs/generic_building.yaml` by default. To

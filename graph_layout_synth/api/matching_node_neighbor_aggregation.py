@@ -29,7 +29,15 @@ IntendedEdgeTarget = tuple[str | None, str]
 
 @dataclass(frozen=True)
 class CandidateAggregation:
-    """Graph-sample support counts for suggested room and edge types."""
+    """Graph-sample support counts for suggested room and edge types.
+
+    ``matched_sample_count`` and ``samples_with_candidates`` are diagnostics
+    that separate the two reasons a request can produce no suggestions: no
+    generated graph contained a semantic anchor match at all, versus matches
+    that had no extra relations left after multiset subtraction (the grammar
+    considers the anchor saturated). They are counted in the same pass as the
+    support counts, never recomputed.
+    """
 
     room_type_counts: Counter[str] = field(default_factory=Counter)
     edge_type_counts_by_room_type: dict[str, Counter[str]] = field(
@@ -41,6 +49,8 @@ class CandidateAggregation:
     intended_edge_type_counts: dict[
         str, dict[IntendedEdgeTarget, Counter[str]]
     ] = field(default_factory=dict)
+    matched_sample_count: int = 0
+    samples_with_candidates: int = 0
 
 
 def subtract_neighbor_signature(
@@ -75,16 +85,22 @@ def _dominant_edge_type(edge_counts: Mapping[str, int] | None) -> str | None:
     return "wall"
 
 
-def candidate_relations_for_generated_graph(
+def matches_and_candidate_relations_for_generated_graph(
     frontend_graph: nx.Graph,
     anchor_node_id: Hashable,
     generated_graph: nx.Graph,
-) -> set[NeighborRelation]:
-    """Return de-duplicated extra room/edge relations from one graph."""
+) -> tuple[int, set[NeighborRelation]]:
+    """Return (semantic match count, extra relations) for one graph.
+
+    Both come from a single pass so callers can distinguish "no node matched
+    the anchor" from "nodes matched but had no extra relations" without
+    walking the graph twice.
+    """
     required_signature = build_anchor_neighbor_signature(
         frontend_graph,
         anchor_node_id,
     )
+    matching_node_count = 0
     relations: set[NeighborRelation] = set()
 
     for matching_node_id in generated_graph.nodes:
@@ -102,6 +118,7 @@ def candidate_relations_for_generated_graph(
             )
         except ValueError:
             continue
+        matching_node_count += 1
         extra_signature = subtract_neighbor_signature(
             required_signature,
             candidate_signature,
@@ -109,6 +126,20 @@ def candidate_relations_for_generated_graph(
         relations.update(
             relation for relation, count in extra_signature.items() if count > 0
         )
+    return matching_node_count, relations
+
+
+def candidate_relations_for_generated_graph(
+    frontend_graph: nx.Graph,
+    anchor_node_id: Hashable,
+    generated_graph: nx.Graph,
+) -> set[NeighborRelation]:
+    """Return de-duplicated extra room/edge relations from one graph."""
+    _matching_node_count, relations = matches_and_candidate_relations_for_generated_graph(
+        frontend_graph,
+        anchor_node_id,
+        generated_graph,
+    )
     return relations
 
 
@@ -347,13 +378,22 @@ def aggregate_candidate_evidence_from_matching_nodes(
     edge_type_counts_by_room_type: dict[str, Counter[str]] = {}
     intended_edge_sample_counts: dict[str, Counter[IntendedEdgeTarget]] = {}
     intended_edge_type_counts: dict[str, dict[IntendedEdgeTarget, Counter[str]]] = {}
+    matched_sample_count = 0
+    samples_with_candidates = 0
 
     for generated_graph in generated_graphs:
-        relations = candidate_relations_for_generated_graph(
+        (
+            matching_node_count,
+            relations,
+        ) = matches_and_candidate_relations_for_generated_graph(
             frontend_graph,
             anchor_node_id,
             generated_graph,
         )
+        if matching_node_count:
+            matched_sample_count += 1
+        if relations:
+            samples_with_candidates += 1
         room_type_counts.update({room_type for room_type, _edge_type in relations})
         for room_type, edge_type in relations:
             normalized_edge_type = _normalize_suggestion_edge_type(edge_type)
@@ -388,6 +428,8 @@ def aggregate_candidate_evidence_from_matching_nodes(
         edge_type_counts_by_room_type=edge_type_counts_by_room_type,
         intended_edge_sample_counts=intended_edge_sample_counts,
         intended_edge_type_counts=intended_edge_type_counts,
+        matched_sample_count=matched_sample_count,
+        samples_with_candidates=samples_with_candidates,
     )
 
 
